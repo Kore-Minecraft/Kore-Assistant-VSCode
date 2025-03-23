@@ -430,7 +430,7 @@ export class KoreTreeItem extends vscode.TreeItem {
 		// Set icon based on type and context
 		if (contextValue === 'category') {
 			// Category icons
-			this.iconPath = new vscode.ThemeIcon(type === 'datapack' ? 'package' : 'symbol-function');
+			this.iconPath = new vscode.ThemeIcon(type === 'datapack' ? 'symbol-constructor' : 'symbol-function');
 			this.tooltip = type === 'datapack' ? 'Datapacks defined in the workspace' : 'Functions defined in the workspace';
 		} else if (contextValue === 'element') {
 			// Element icons - use custom icons from extension assets
