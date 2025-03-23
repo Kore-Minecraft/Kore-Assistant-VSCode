@@ -28,6 +28,30 @@
       {
         "command": "kore-assistant.revealKoreElement",
         "title": "Kore: Reveal Element"
+      },
+      {
+        "command": "kore-assistant.toggleGrouping",
+        "title": "Group by Type (currently grouped by type/path)",
+        "tooltip": "Switch to grouping by file",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "kore-assistant.toggleGroupingByFile",
+        "title": "Group by Path (currently grouped by file)",
+        "tooltip": "Switch to grouping by type/path",
+        "icon": "$(file-directory)"
+      },
+      {
+        "command": "kore-assistant.toggleSorting",
+        "title": "Sort by Name (currently sorted by file)",
+        "tooltip": "Switch to sorting by name",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "kore-assistant.toggleSortingByName",
+        "title": "Sort by File (currently sorted by name)",
+        "tooltip": "Switch to sorting by file",
+        "icon": "$(symbol-array)"
       }
     ],
     "viewsContainers": {
@@ -44,6 +68,30 @@
         {
           "id": "koreExplorer",
           "name": "Datapacks & Functions"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "kore-assistant.toggleGrouping",
+          "when": "view == koreExplorer && !groupByFile",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kore-assistant.toggleGroupingByFile",
+          "when": "view == koreExplorer && groupByFile",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kore-assistant.toggleSorting",
+          "when": "view == koreExplorer && sortByFile",
+          "group": "navigation@2"
+        },
+        {
+          "command": "kore-assistant.toggleSortingByName",
+          "when": "view == koreExplorer && !sortByFile",
+          "group": "navigation@2"
         }
       ]
     }
