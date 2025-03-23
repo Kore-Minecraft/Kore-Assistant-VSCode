@@ -21,12 +21,19 @@ let outputChannel: vscode.OutputChannel;
 // Tree data provider
 let treeDataProvider: KoreTreeDataProvider;
 
+// View options
+let groupByFile = false;
+let sortByFile = true;
+
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
 	// Create output channel
 	outputChannel = vscode.window.createOutputChannel("Kore Assistant");
 	outputChannel.appendLine("Kore Assistant is now active");
+
+	// Set the initial context values for button visibility
+	updateContextVariables();
 
 	// Get paths to icons - using only dark icons for better visibility in all themes
 	const datapackIconUri = vscode.Uri.joinPath(context.extensionUri, 'dist', 'assets', 'datapack-dark.svg');
@@ -57,12 +64,52 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Setup TreeView
-	treeDataProvider = new KoreTreeDataProvider();
+	treeDataProvider = new KoreTreeDataProvider(groupByFile, sortByFile);
 	const treeView = vscode.window.createTreeView('koreExplorer', {
 		treeDataProvider: treeDataProvider,
 		showCollapseAll: true
 	});
 	context.subscriptions.push(treeView);
+
+	// Register commands to toggle grouping mode
+	const toggleGroupingCommand = vscode.commands.registerCommand('kore-assistant.toggleGrouping', () => {
+		toggleGroupingMode();
+	});
+
+	const toggleGroupingByFileCommand = vscode.commands.registerCommand('kore-assistant.toggleGroupingByFile', () => {
+		toggleGroupingMode();
+	});
+
+	// Function to toggle grouping mode
+	function toggleGroupingMode() {
+		groupByFile = !groupByFile;
+		treeDataProvider.setGroupByFile(groupByFile);
+		treeDataProvider.refresh();
+		updateContextVariables();
+	}
+
+	// Register commands to toggle sorting mode
+	const toggleSortingCommand = vscode.commands.registerCommand('kore-assistant.toggleSorting', () => {
+		toggleSortingMode();
+	});
+
+	const toggleSortingByNameCommand = vscode.commands.registerCommand('kore-assistant.toggleSortingByName', () => {
+		toggleSortingMode();
+	});
+
+	// Function to toggle sorting mode
+	function toggleSortingMode() {
+		sortByFile = !sortByFile;
+		treeDataProvider.setSortByFile(sortByFile);
+		treeDataProvider.refresh();
+		updateContextVariables();
+	}
+
+	// Function to update context variables for the when clauses
+	function updateContextVariables() {
+		vscode.commands.executeCommand('setContext', 'groupByFile', groupByFile);
+		vscode.commands.executeCommand('setContext', 'sortByFile', sortByFile);
+	}
 
 	// Register command to reveal element in editor
 	const revealElementCommand = vscode.commands.registerCommand('kore-assistant.revealKoreElement', (element: KoreElement) => {
@@ -125,6 +172,10 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(refreshCommand);
 	context.subscriptions.push(testCommand);
 	context.subscriptions.push(revealElementCommand);
+	context.subscriptions.push(toggleGroupingCommand);
+	context.subscriptions.push(toggleGroupingByFileCommand);
+	context.subscriptions.push(toggleSortingCommand);
+	context.subscriptions.push(toggleSortingByNameCommand);
 }
 
 async function scanWorkspaceFiles() {
