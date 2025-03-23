@@ -3,6 +3,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs-extra';
 import { koreElementManager, KoreElement } from './koreElements';
+import { KoreTreeDataProvider } from './koreTreeView';
 
 // Patterns to match in Kotlin files
 const KORE_PATTERNS = {
@@ -16,6 +17,9 @@ let functionDecoration: vscode.TextEditorDecorationType;
 
 // Output channel for logging
 let outputChannel: vscode.OutputChannel;
+
+// Tree data provider
+let treeDataProvider: KoreTreeDataProvider;
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -52,6 +56,34 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.window.showInformationMessage('Kore Assistant test command executed successfully!');
 	});
 
+	// Setup TreeView
+	treeDataProvider = new KoreTreeDataProvider();
+	const treeView = vscode.window.createTreeView('koreExplorer', {
+		treeDataProvider: treeDataProvider,
+		showCollapseAll: true
+	});
+	context.subscriptions.push(treeView);
+
+	// Register command to reveal element in editor
+	const revealElementCommand = vscode.commands.registerCommand('kore-assistant.revealKoreElement', (element: KoreElement) => {
+		// First, open the document if it's not already open
+		vscode.workspace.openTextDocument(element.uri).then(doc => {
+			vscode.window.showTextDocument(doc).then(editor => {
+				// Get the position from the element's range
+				const position = element.range.start;
+
+				// Reveal the position in the editor
+				editor.revealRange(
+					element.range,
+					vscode.TextEditorRevealType.InCenter
+				);
+
+				// Set cursor position
+				editor.selection = new vscode.Selection(position, position);
+			});
+		});
+	});
+
 	// Update decorations when opening, changing or saving documents
 	vscode.window.onDidChangeActiveTextEditor(editor => {
 		if (editor) {
@@ -66,6 +98,25 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	}, null, context.subscriptions);
 
+	// Scan all Kotlin files in the workspace when the extension activates
+	scanWorkspaceFiles();
+
+	// Rescan when files are created or deleted
+	vscode.workspace.onDidCreateFiles(event => {
+		for (const uri of event.files) {
+			if (uri.path.endsWith('.kt')) {
+				vscode.workspace.openTextDocument(uri).then(doc => {
+					processDocument(doc);
+				});
+			}
+		}
+	}, null, context.subscriptions);
+
+	vscode.workspace.onDidDeleteFiles(event => {
+		// Just refresh tree view since files are gone
+		treeDataProvider.refresh();
+	}, null, context.subscriptions);
+
 	// Initial update for current editor
 	if (vscode.window.activeTextEditor) {
 		updateDecorations(vscode.window.activeTextEditor);
@@ -73,22 +124,36 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(refreshCommand);
 	context.subscriptions.push(testCommand);
+	context.subscriptions.push(revealElementCommand);
 }
 
-function updateDecorations(editor: vscode.TextEditor) {
-	if (!editor || editor.document.languageId !== 'kotlin') {
+async function scanWorkspaceFiles() {
+	outputChannel.appendLine("Scanning workspace for Kotlin files...");
+
+	// Find all Kotlin files
+	const files = await vscode.workspace.findFiles('**/*.kt');
+	outputChannel.appendLine(`Found ${files.length} Kotlin files`);
+
+	// Process each file
+	for (const uri of files) {
+		try {
+			const doc = await vscode.workspace.openTextDocument(uri);
+			processDocument(doc);
+		} catch (error) {
+			outputChannel.appendLine(`Error processing file ${uri.fsPath}: ${error}`);
+		}
+	}
+}
+
+function processDocument(document: vscode.TextDocument) {
+	if (document.languageId !== 'kotlin') {
 		return;
 	}
 
-	const document = editor.document;
 	const documentUri = document.uri;
 	const text = document.getText();
 
-	// Clear existing elements for this document
-	koreElementManager.clearElements();
-
 	// Find datapack patterns
-	const datapackRanges: vscode.DecorationOptions[] = [];
 	let match;
 
 	KORE_PATTERNS.DATAPACK.lastIndex = 0; // Reset regex index
@@ -106,17 +171,10 @@ function updateDecorations(editor: vscode.TextEditor) {
 		};
 
 		koreElementManager.addElement(element);
-
-		datapackRanges.push({
-			range,
-			hoverMessage: `Datapack: ${match[1]}`
-		});
 	}
 
 	// Find function patterns
-	const functionRanges: vscode.DecorationOptions[] = [];
 	KORE_PATTERNS.FUNCTION.lastIndex = 0; // Reset regex index
-
 	while ((match = KORE_PATTERNS.FUNCTION.exec(text)) !== null) {
 		const startPos = document.positionAt(match.index);
 		const endPos = document.positionAt(match.index + match[0].length);
@@ -131,16 +189,50 @@ function updateDecorations(editor: vscode.TextEditor) {
 		};
 
 		koreElementManager.addElement(element);
-
-		functionRanges.push({
-			range,
-			hoverMessage: `Function: ${match[1]}`
-		});
 	}
+}
+
+function updateDecorations(editor: vscode.TextEditor) {
+	if (!editor || editor.document.languageId !== 'kotlin') {
+		return;
+	}
+
+	const document = editor.document;
+	const documentUri = document.uri;
+
+	// Get current elements for this document
+	const elementsForDocument = koreElementManager.getElementsByUri(documentUri);
+
+	// Remove elements for this document
+	for (const element of elementsForDocument) {
+		koreElementManager.removeElement(element);
+	}
+
+	// Process the document to find new elements
+	processDocument(document);
+
+	// Get updated decorations
+	const updatedElements = koreElementManager.getElementsByUri(documentUri);
+
+	const datapackRanges = updatedElements
+		.filter(e => e.type === 'datapack')
+		.map(e => ({
+			range: e.range,
+			hoverMessage: `Datapack: ${e.name}`
+		}));
+
+	const functionRanges = updatedElements
+		.filter(e => e.type === 'function')
+		.map(e => ({
+			range: e.range,
+			hoverMessage: `Function: ${e.name}`
+		}));
 
 	// Apply decorations
 	editor.setDecorations(datapackDecoration, datapackRanges);
 	editor.setDecorations(functionDecoration, functionRanges);
+
+	// The tree view refresh happens automatically via the onDidChangeElements event
 }
 
 // This method is called when your extension is deactivated

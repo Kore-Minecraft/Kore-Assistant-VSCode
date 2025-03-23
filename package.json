@@ -24,8 +24,29 @@
       {
         "command": "kore-assistant.testExtension",
         "title": "Kore: Test Extension"
+      },
+      {
+        "command": "kore-assistant.revealKoreElement",
+        "title": "Kore: Reveal Element"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "kore-explorer",
+          "title": "Kore Explorer",
+          "icon": "dist/assets/datapack-dark.svg"
+        }
+      ]
+    },
+    "views": {
+      "kore-explorer": [
+        {
+          "id": "koreExplorer",
+          "name": "Datapacks & Functions"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run package",
