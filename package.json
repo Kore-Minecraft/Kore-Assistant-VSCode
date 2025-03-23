@@ -59,7 +59,7 @@
         {
           "id": "kore-explorer",
           "title": "Kore Explorer",
-          "icon": "dist/assets/datapack-dark.svg"
+          "icon": "dist/assets/kore-white.svg"
         }
       ]
     },
@@ -67,7 +67,7 @@
       "kore-explorer": [
         {
           "id": "koreExplorer",
-          "name": "Datapacks & Functions"
+          "name": ""
         }
       ]
     },
