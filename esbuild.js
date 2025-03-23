@@ -33,15 +33,21 @@ const copyAssetsPlugin = {
 	
 	setup(build) {
 		build.onEnd(() => {
-			// Ensure dist directory exists
-			fs.ensureDirSync('dist/assets');
-			
-			// Copy assets
-			fs.copySync('src/assets', 'dist/assets', {
-				overwrite: true
-			});
-			
-			console.log('[assets] copied to dist/assets');
+			try {
+				// Ensure dist directory exists
+				fs.ensureDirSync('dist/assets');
+				
+				// Copy assets
+				fs.copySync('src/assets', 'dist/assets', {
+					overwrite: true
+				});
+				
+				// Log the contents of dist/assets to verify
+				const files = fs.readdirSync('dist/assets');
+				console.log('[assets] copied to dist/assets:', files);
+			} catch (error) {
+				console.error('[assets] Error copying assets:', error);
+			}
 		});
 	}
 };

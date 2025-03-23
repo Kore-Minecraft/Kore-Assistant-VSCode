@@ -3,6 +3,7 @@
   "displayName": "Kore Assistant",
   "description": "An assistant that gives you powerful tools when working with Kore.",
   "version": "0.0.1",
+  "publisher": "ayfri",
   "engines": {
     "vscode": "^1.98.0"
   },
@@ -17,12 +18,12 @@
   "contributes": {
     "commands": [
       {
-        "command": "kore-assistant.helloWorld",
-        "title": "Hello World"
-      },
-      {
         "command": "kore-assistant.refreshGutterIcons",
         "title": "Kore: Refresh Gutter Icons"
+      },
+      {
+        "command": "kore-assistant.testExtension",
+        "title": "Kore: Test Extension"
       }
     ]
   },

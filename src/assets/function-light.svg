@@ -1,4 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
-	<path d="M2 3H8C10.2091 3 12 4.79086 12 7C12 9.20914 10.2091 11 8 11H2" stroke="#424242" stroke-width="1.5" stroke-linecap="round"/>
-	<path d="M10 14L14 8L10 2" stroke="#424242" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg> 
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+	<!-- Cercle de fond avec légère transparence -->
+	<circle cx="8" cy="8" r="7" fill="#10805E" opacity="0.9"/>
+
+	<!-- Symbolique f(x) stylisé -->
+	<path d="M4.5 5.5H7.5" stroke="#64FFDA" stroke-width="1.5" stroke-linecap="round"/>
+	<path d="M4.5 5.5V10.5" stroke="#64FFDA" stroke-width="1.5" stroke-linecap="round"/>
+	<path d="M4.5 8H6.5" stroke="#64FFDA" stroke-width="1.5" stroke-linecap="round"/>
+
+	<!-- Symbole parenthèse pour f(x) -->
+	<path d="M8.5 5C9.5 6 10 7 10 8C10 9 9.5 10 8.5 11" stroke="#64FFDA" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+
+	<!-- x de f(x) -->
+	<path d="M11 6L12 10M11 10L12 6" stroke="#64FFDA" stroke-width="1.2" stroke-linecap="round"/>
+</svg>
