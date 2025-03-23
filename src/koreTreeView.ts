@@ -182,7 +182,37 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 		}
 
 		// Sort items based on sorting preference
-		return this.sortItems(items);
+		const sortedItems = this.sortItems(items);
+
+		// If sorting by file, add separators between different files
+		if (this._sortByFile && sortedItems.length > 0) {
+			const result: KoreTreeItem[] = [];
+			let currentFileName: string | undefined = undefined;
+
+			for (const item of sortedItems) {
+				if (item.contextValue === 'element' && item.description) {
+					const fileName = item.description.toString();
+
+					// If we're changing files, add a separator
+					if (currentFileName && fileName !== currentFileName) {
+						result.push(new KoreTreeItem(
+							'—'.repeat(10),
+							'separator',
+							'separator',
+							vscode.TreeItemCollapsibleState.None
+						));
+					}
+
+					currentFileName = fileName;
+				}
+
+				result.push(item);
+			}
+
+			return result;
+		}
+
+		return sortedItems;
 	}
 
 	private getItemsInGroup(groupItem: KoreTreeItem): KoreTreeItem[] {
@@ -237,7 +267,37 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 		}
 
 		// Sort items based on sorting preference
-		return this.sortItems(items);
+		const sortedItems = this.sortItems(items);
+
+		// If sorting by file, add separators between different files
+		if (this._sortByFile && sortedItems.length > 0) {
+			const result: KoreTreeItem[] = [];
+			let currentFileName: string | undefined = undefined;
+
+			for (const item of sortedItems) {
+				if (item.contextValue === 'element' && item.description) {
+					const fileName = item.description.toString();
+
+					// If we're changing files, add a separator
+					if (currentFileName && fileName !== currentFileName) {
+						result.push(new KoreTreeItem(
+							'—'.repeat(10),
+							'separator',
+							'separator',
+							vscode.TreeItemCollapsibleState.None
+						));
+					}
+
+					currentFileName = fileName;
+				}
+
+				result.push(item);
+			}
+
+			return result;
+		}
+
+		return sortedItems;
 	}
 
 	// Generic sorting function that handles both name and file based sorting
@@ -291,12 +351,15 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 		const filePath = element.uri.fsPath;
 		const fileName = path.basename(filePath);
 
+		// Get the line number
+		const lineNumber = element.range.start.line;
+
 		// Create a detailed tooltip with all information
 		const relativeFilePath = this.tryGetWorkspaceRelativePath(filePath);
 		const tooltipLines = [
 			`${element.type === 'datapack' ? 'Datapack' : 'Function'}: ${element.name}`,
 			`File: ${relativeFilePath || fileName}`,
-			`Line: ${element.range.start.line + 1}`
+			`Line: ${lineNumber + 1}`
 		];
 		const tooltip = tooltipLines.join('\n');
 
@@ -313,7 +376,8 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			undefined,
 			fileName,
 			undefined,
-			tooltip
+			tooltip,
+			lineNumber
 		);
 	}
 
@@ -352,13 +416,15 @@ export class KoreTreeItem extends vscode.TreeItem {
 			filePath: string;
 			elements: KoreElement[];
 		},
-		public readonly customTooltip?: string
+		public readonly customTooltip?: string,
+		private readonly lineNumber?: number
 	) {
 		super(label, collapsibleState);
 
 		// Set file name as description (appears in gray after the label)
-		if (fileName) {
-			this.description = fileName;
+		if (fileName && contextValue !== 'separator') {
+			// If we have a line number, add it in parentheses
+			this.description = lineNumber !== undefined ? `${fileName} (${lineNumber + 1})` : fileName;
 		}
 
 		// Set icon based on type and context
@@ -391,6 +457,15 @@ export class KoreTreeItem extends vscode.TreeItem {
 				const functionCount = fileData.elements.filter(e => e.type === 'function').length;
 				this.tooltip = `File: ${label}\nDatapacks: ${datapackCount}\nFunctions: ${functionCount}\nTotal elements: ${elementCount}`;
 			}
+		} else if (contextValue === 'separator') {
+			// Style for separator - gray line
+			this.description = '';
+
+			// Empty tooltip
+			this.tooltip = '';
+
+			// Set a themed icon to show it's a separator
+			this.iconPath = new vscode.ThemeIcon('dash');
 		}
 	}
 }
