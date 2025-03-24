@@ -10,6 +10,7 @@ A Visual Studio Code extension providing powerful tools for working with [Kore](
 - **Navigation**: Quickly jump to datapack and function declarations through the explorer
 - **Sorting and Grouping**: Organize your Kore elements by file or by type
 - **Commands**: Run common Kore operations directly from VS Code
+- **Snippets**: Code snippets for quickly creating Kore elements with proper imports
 
 ## About Kore
 
@@ -33,8 +34,16 @@ Visit [kore.ayfri.com](https://kore.ayfri.com/) for official documentation.
 2. The extension will automatically detect and highlight them with gutter icons
 3. Use the Kore Explorer in the sidebar to browse and navigate your Kore elements
 4. Configure display preferences using the view toolbar buttons
+5. Use the snippets to quickly create new Kore elements (see snippets section below)
 
 To refresh the icons manually, run the "Kore: Refresh Gutter Icons" command from the command palette.
+
+## Snippets
+
+The extension provides the following snippets for Kotlin files:
+
+- `dp` - Creates a datapack declaration with automatic import
+- `fn` - Creates a function declaration with automatic import
 
 ## Extension Settings
 

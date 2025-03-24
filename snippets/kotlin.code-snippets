@@ -1,0 +1,20 @@
+{
+	"Kore DataPack": {
+		"prefix": "dp",
+		"body": [
+			"dataPack(\"$1\") {",
+			"\t$0",
+			"}"
+		],
+		"description": "Create a Kore datapack with import"
+	},
+	"Kore Function": {
+		"prefix": "fn",
+		"body": [
+			"function(\"$1\") {",
+			"\t$0",
+			"}"
+		],
+		"description": "Create a Kore function with import"
+	}
+}

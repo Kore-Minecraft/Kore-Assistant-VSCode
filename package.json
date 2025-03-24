@@ -54,6 +54,12 @@
         "icon": "$(symbol-array)"
       }
     ],
+    "snippets": [
+      {
+        "language": "kotlin",
+        "path": "./snippets/kotlin.code-snippets"
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
