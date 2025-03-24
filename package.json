@@ -4,7 +4,7 @@
   "description": "An assistant that gives you powerful tools when working with Kore.",
   "version": "0.1.0",
   "publisher": "ayfri",
-  "icon": "dist/assets/kore-white.svg",
+  "icon": "dist/assets/kore.png",
   "license": "GPL-3.0",
   "author": {
     "name": "Ayfri",
