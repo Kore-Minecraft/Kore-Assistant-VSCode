@@ -2,8 +2,28 @@
   "name": "kore-assistant",
   "displayName": "Kore Assistant",
   "description": "An assistant that gives you powerful tools when working with Kore.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "ayfri",
+  "icon": "dist/assets/kore-white.svg",
+  "license": "GPL-3.0",
+  "author": {
+    "name": "Ayfri",
+    "url": "https://github.com/Ayfri"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kore-Minecraft/Kore-Assistant-VSCode"
+  },
+  "bugs": {
+    "url": "https://github.com/Kore-Minecraft/Kore-Assistant-VSCode/issues"
+  },
+  "homepage": "https://github.com/Kore-Minecraft/Kore-Assistant-VSCode#readme",
+  "keywords": [
+    "kore",
+    "minecraft",
+    "datapack",
+    "kotlin"
+  ],
   "engines": {
     "vscode": "^1.98.0"
   },

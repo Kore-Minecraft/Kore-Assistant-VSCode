@@ -1,5 +1,7 @@
 # Kore Assistant
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://marketplace.visualstudio.com/items?itemName=ayfri.kore-assistant)
+
 A Visual Studio Code extension providing powerful tools for working with [Kore](https://github.com/Ayfri/Kore), a Kotlin library for creating Minecraft datapacks without writing JSON.
 
 ## Features
@@ -11,6 +13,17 @@ A Visual Studio Code extension providing powerful tools for working with [Kore](
 - **Sorting and Grouping**: Organize your Kore elements by file or by type
 - **Commands**: Run common Kore operations directly from VS Code
 - **Snippets**: Code snippets for quickly creating Kore elements with proper imports
+
+## Installation
+
+You can install this extension through the VS Code Marketplace:
+
+1. Open VS Code
+2. Go to the Extensions view (`Ctrl+Shift+X` or `Cmd+Shift+X` on macOS)
+3. Search for "Kore Assistant"
+4. Click Install
+
+Alternatively, you can install it directly from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ayfri.kore-assistant).
 
 ## About Kore
 
