@@ -1,21 +1,19 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import { koreElementManager, KoreElement } from './koreElements';
+import { isFunctionKind, kindById } from './koreDeclarations';
+import { koreElementManager, KoreElement, ResolvedKoreElement } from './koreElements';
+import { parseKoreDeclarations } from './koreParser';
 import { KoreTreeDataProvider } from './koreTreeView';
-
-// Kore DSL builders to detect in Kotlin files, and the element type they represent
-const KORE_PATTERNS: { type: KoreElement['type']; regex: RegExp }[] = [
-	{ type: 'datapack', regex: /dataPack\s*\(\s*["']([^"']+)["']\s*\)\s*\{/g },
-	{ type: 'function', regex: /function\s*\(\s*["']([^"']+)["']\s*\)\s*\{/g },
-];
 
 // Delay before rescanning a document after an edit, to avoid a full rescan on every keystroke
 const RESCAN_DEBOUNCE_MS = 300;
 
-// Decoration types for gutter icons
+// Decoration types for gutter icons: function-family kinds keep the function icon, DATA_PACK keeps the
+// datapack icon, and every other (JSON-backed) kind gets a generic json icon.
 let datapackDecoration: vscode.TextEditorDecorationType;
 let functionDecoration: vscode.TextEditorDecorationType;
+let jsonDecoration: vscode.TextEditorDecorationType;
 
 // Output channel for logging
 let outputChannel: vscode.OutputChannel;
@@ -40,6 +38,7 @@ export function activate(context: vscode.ExtensionContext) {
 	// Get paths to icons - using only dark icons for better visibility in all themes
 	const datapackIconUri = vscode.Uri.joinPath(context.extensionUri, 'dist', 'assets', 'datapack-dark.svg');
 	const functionIconUri = vscode.Uri.joinPath(context.extensionUri, 'dist', 'assets', 'function-dark.svg');
+	const jsonIconUri = vscode.Uri.joinPath(context.extensionUri, 'dist', 'assets', 'json-dark.svg');
 
 	// Create decorations
 	datapackDecoration = vscode.window.createTextEditorDecorationType({
@@ -49,6 +48,11 @@ export function activate(context: vscode.ExtensionContext) {
 
 	functionDecoration = vscode.window.createTextEditorDecorationType({
 		gutterIconPath: functionIconUri,
+		gutterIconSize: '100%'
+	});
+
+	jsonDecoration = vscode.window.createTextEditorDecorationType({
+		gutterIconPath: jsonIconUri,
 		gutterIconSize: '100%'
 	});
 
@@ -122,6 +126,23 @@ export function activate(context: vscode.ExtensionContext) {
 		editor.selection = new vscode.Selection(element.range.start, element.range.start);
 	});
 
+	// Register commands to copy the resource location / output path of a tree item to the clipboard
+	const copyResourceLocationCommand = vscode.commands.registerCommand(
+		'kore-assistant.copyResourceLocation',
+		async (element: ResolvedKoreElement) => {
+			if (element.resourceLocation) {
+				await vscode.env.clipboard.writeText(element.resourceLocation);
+			}
+		}
+	);
+
+	const copyOutputPathCommand = vscode.commands.registerCommand(
+		'kore-assistant.copyOutputPath',
+		async (element: ResolvedKoreElement) => {
+			await vscode.env.clipboard.writeText(element.outputPath);
+		}
+	);
+
 	// Update decorations when opening, changing or saving documents
 	vscode.window.onDidChangeActiveTextEditor(editor => {
 		if (editor) {
@@ -168,6 +189,8 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(refreshCommand);
 	context.subscriptions.push(testCommand);
 	context.subscriptions.push(revealElementCommand);
+	context.subscriptions.push(copyResourceLocationCommand);
+	context.subscriptions.push(copyOutputPathCommand);
 	context.subscriptions.push(toggleGroupingCommand);
 	context.subscriptions.push(toggleGroupingByFileCommand);
 	context.subscriptions.push(toggleSortingCommand);
@@ -200,31 +223,52 @@ function parseKoreElements(document: vscode.TextDocument): KoreElement[] {
 
 	const documentUri = document.uri;
 	const text = document.getText();
-	const elements: KoreElement[] = [];
 
-	for (const { type, regex } of KORE_PATTERNS) {
-		regex.lastIndex = 0; // Reset shared regex index before each scan
-		let match;
-		while ((match = regex.exec(text)) !== null) {
-			const startPos = document.positionAt(match.index);
-			const endPos = document.positionAt(match.index + match[0].length);
-
-			elements.push({
-				name: match[1],
-				type,
-				range: new vscode.Range(startPos, endPos),
-				uri: documentUri
-			});
+	return parseKoreDeclarations(text).flatMap(decl => {
+		const kind = kindById(decl.kindId);
+		if (!kind) {
+			return [];
 		}
-	}
 
-	return elements;
+		const startPos = document.positionAt(decl.offset);
+		const endPos = document.positionAt(decl.offset + kind.builderName.length);
+
+		return [{
+			kindId: decl.kindId,
+			name: decl.name,
+			namespace: decl.namespace,
+			dataPackName: decl.dataPackName,
+			directory: decl.directory,
+			isDynamic: decl.isDynamic,
+			range: new vscode.Range(startPos, endPos),
+			uri: documentUri,
+		}];
+	});
 }
 
-function decorationOptionsFor(elements: KoreElement[], type: KoreElement['type'], label: string): vscode.DecorationOptions[] {
-	return elements
-		.filter(e => e.type === type)
-		.map(e => ({ range: e.range, hoverMessage: `${label}: ${e.name}` }));
+function decorationTypeFor(element: ResolvedKoreElement): vscode.TextEditorDecorationType | undefined {
+	const kind = kindById(element.kindId);
+	if (!kind) {
+		return undefined;
+	}
+
+	if (kind.id === 'DATA_PACK') {
+		return datapackDecoration;
+	}
+
+	return isFunctionKind(kind) ? functionDecoration : jsonDecoration;
+}
+
+function hoverMessageFor(element: ResolvedKoreElement): string {
+	const kind = kindById(element.kindId)!;
+	const lines = [`${kind.id === 'DATA_PACK' ? 'Datapack' : 'Resource'}: ${element.name}`];
+
+	if (element.resourceLocation) {
+		lines.push(`Resource Location: ${element.resourceLocation}`);
+	}
+	lines.push(`Output Path: ${element.outputPath}`);
+
+	return lines.join('\n');
 }
 
 function updateDecorations(editor: vscode.TextEditor) {
@@ -236,8 +280,28 @@ function updateDecorations(editor: vscode.TextEditor) {
 	const elements = parseKoreElements(document);
 	koreElementManager.replaceElementsForUri(document.uri, elements);
 
-	editor.setDecorations(datapackDecoration, decorationOptionsFor(elements, 'datapack', 'Datapack'));
-	editor.setDecorations(functionDecoration, decorationOptionsFor(elements, 'function', 'Function'));
+	const resolved = koreElementManager.getElements().filter(e => e.uri.fsPath === document.uri.fsPath);
+
+	const datapackOptions: vscode.DecorationOptions[] = [];
+	const functionOptions: vscode.DecorationOptions[] = [];
+	const jsonOptions: vscode.DecorationOptions[] = [];
+
+	for (const element of resolved) {
+		const decorationType = decorationTypeFor(element);
+		const option: vscode.DecorationOptions = { range: element.range, hoverMessage: hoverMessageFor(element) };
+
+		if (decorationType === datapackDecoration) {
+			datapackOptions.push(option);
+		} else if (decorationType === functionDecoration) {
+			functionOptions.push(option);
+		} else if (decorationType === jsonDecoration) {
+			jsonOptions.push(option);
+		}
+	}
+
+	editor.setDecorations(datapackDecoration, datapackOptions);
+	editor.setDecorations(functionDecoration, functionOptions);
+	editor.setDecorations(jsonDecoration, jsonOptions);
 
 	// The tree view refresh happens automatically via the onDidChangeElements event
 }
@@ -250,6 +314,9 @@ export function deactivate() {
 	}
 	if (functionDecoration) {
 		functionDecoration.dispose();
+	}
+	if (jsonDecoration) {
+		jsonDecoration.dispose();
 	}
 
 	if (outputChannel) {
