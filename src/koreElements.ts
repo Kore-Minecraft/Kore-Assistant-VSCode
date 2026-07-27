@@ -12,26 +12,9 @@ export class KoreElementManager {
 	private readonly _onDidChangeElements = new vscode.EventEmitter<void>();
 	readonly onDidChangeElements: vscode.Event<void> = this._onDidChangeElements.event;
 
-	public addElement(element: KoreElement): void {
-		this.elements.push(element);
-		this._onDidChangeElements.fire();
-	}
-
-	public removeElement(element: KoreElement): void {
-		const index = this.elements.findIndex(e =>
-			e.name === element.name &&
-			e.type === element.type &&
-			e.uri.fsPath === element.uri.fsPath
-		);
-
-		if (index !== -1) {
-			this.elements.splice(index, 1);
-			this._onDidChangeElements.fire();
-		}
-	}
-
-	public clearElements(): void {
-		this.elements = [];
+	// Swaps out every element for a given file in one shot, firing a single change event instead of one per element.
+	public replaceElementsForUri(uri: vscode.Uri, elements: KoreElement[]): void {
+		this.elements = this.elements.filter(e => e.uri.fsPath !== uri.fsPath).concat(elements);
 		this._onDidChangeElements.fire();
 	}
 
@@ -41,14 +24,6 @@ export class KoreElementManager {
 
 	public getElementsByType(type: 'datapack' | 'function'): KoreElement[] {
 		return this.elements.filter(element => element.type === type);
-	}
-
-	public getElementsByUri(uri: vscode.Uri): KoreElement[] {
-		return this.elements.filter(element => element.uri.fsPath === uri.fsPath);
-	}
-
-	public getElementByName(name: string): KoreElement | undefined {
-		return this.elements.find(element => element.name === name);
 	}
 }
 

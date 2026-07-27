@@ -4,11 +4,14 @@ import * as vscode from 'vscode';
 import { koreElementManager, KoreElement } from './koreElements';
 import { KoreTreeDataProvider } from './koreTreeView';
 
-// Patterns to match in Kotlin files
-const KORE_PATTERNS = {
-	DATAPACK: /dataPack\s*\(\s*["']([^"']+)["']\s*\)\s*\{/g,
-	FUNCTION: /function\s*\(\s*["']([^"']+)["']\s*\)\s*\{/g,
-};
+// Kore DSL builders to detect in Kotlin files, and the element type they represent
+const KORE_PATTERNS: { type: KoreElement['type']; regex: RegExp }[] = [
+	{ type: 'datapack', regex: /dataPack\s*\(\s*["']([^"']+)["']\s*\)\s*\{/g },
+	{ type: 'function', regex: /function\s*\(\s*["']([^"']+)["']\s*\)\s*\{/g },
+];
+
+// Delay before rescanning a document after an edit, to avoid a full rescan on every keystroke
+const RESCAN_DEBOUNCE_MS = 300;
 
 // Decoration types for gutter icons
 let datapackDecoration: vscode.TextEditorDecorationType;
@@ -111,23 +114,12 @@ export function activate(context: vscode.ExtensionContext) {
 	}
 
 	// Register command to reveal element in editor
-	const revealElementCommand = vscode.commands.registerCommand('kore-assistant.revealKoreElement', (element: KoreElement) => {
-		// First, open the document if it's not already open
-		vscode.workspace.openTextDocument(element.uri).then(doc => {
-			vscode.window.showTextDocument(doc).then(editor => {
-				// Get the position from the element's range
-				const position = element.range.start;
+	const revealElementCommand = vscode.commands.registerCommand('kore-assistant.revealKoreElement', async (element: KoreElement) => {
+		const doc = await vscode.workspace.openTextDocument(element.uri);
+		const editor = await vscode.window.showTextDocument(doc);
 
-				// Reveal the position in the editor
-				editor.revealRange(
-					element.range,
-					vscode.TextEditorRevealType.InCenter
-				);
-
-				// Set cursor position
-				editor.selection = new vscode.Selection(position, position);
-			});
-		});
+		editor.revealRange(element.range, vscode.TextEditorRevealType.InCenter);
+		editor.selection = new vscode.Selection(element.range.start, element.range.start);
 	});
 
 	// Update decorations when opening, changing or saving documents
@@ -137,11 +129,16 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	}, null, context.subscriptions);
 
+	// Debounce rescans so a full-document regex scan doesn't run on every keystroke
+	let rescanTimeout: ReturnType<typeof setTimeout> | undefined;
 	vscode.workspace.onDidChangeTextDocument(event => {
 		const editor = vscode.window.activeTextEditor;
-		if (editor && event.document === editor.document) {
-			updateDecorations(editor);
+		if (!editor || event.document !== editor.document) {
+			return;
 		}
+
+		clearTimeout(rescanTimeout);
+		rescanTimeout = setTimeout(() => updateDecorations(editor), RESCAN_DEBOUNCE_MS);
 	}, null, context.subscriptions);
 
 	// Scan all Kotlin files in the workspace when the extension activates
@@ -152,7 +149,7 @@ export function activate(context: vscode.ExtensionContext) {
 		for (const uri of event.files) {
 			if (uri.path.endsWith('.kt')) {
 				vscode.workspace.openTextDocument(uri).then(doc => {
-					processDocument(doc);
+					koreElementManager.replaceElementsForUri(uri, parseKoreElements(doc));
 				});
 			}
 		}
@@ -188,58 +185,46 @@ async function scanWorkspaceFiles() {
 	for (const uri of files) {
 		try {
 			const doc = await vscode.workspace.openTextDocument(uri);
-			processDocument(doc);
+			koreElementManager.replaceElementsForUri(uri, parseKoreElements(doc));
 		} catch (error) {
 			outputChannel.appendLine(`Error processing file ${uri.fsPath}: ${error}`);
 		}
 	}
 }
 
-function processDocument(document: vscode.TextDocument) {
+// Scans a document's text for Kore DSL declarations, without touching the shared element store
+function parseKoreElements(document: vscode.TextDocument): KoreElement[] {
 	if (document.languageId !== 'kotlin') {
-		return;
+		return [];
 	}
 
 	const documentUri = document.uri;
 	const text = document.getText();
+	const elements: KoreElement[] = [];
 
-	// Find datapack patterns
-	let match;
+	for (const { type, regex } of KORE_PATTERNS) {
+		regex.lastIndex = 0; // Reset shared regex index before each scan
+		let match;
+		while ((match = regex.exec(text)) !== null) {
+			const startPos = document.positionAt(match.index);
+			const endPos = document.positionAt(match.index + match[0].length);
 
-	KORE_PATTERNS.DATAPACK.lastIndex = 0; // Reset regex index
-	while ((match = KORE_PATTERNS.DATAPACK.exec(text)) !== null) {
-		const startPos = document.positionAt(match.index);
-		const endPos = document.positionAt(match.index + match[0].length);
-		const range = new vscode.Range(startPos, endPos);
-
-		// Create a Kore element and add it to the manager
-		const element: KoreElement = {
-			name: match[1],
-			type: 'datapack',
-			range,
-			uri: documentUri
-		};
-
-		koreElementManager.addElement(element);
+			elements.push({
+				name: match[1],
+				type,
+				range: new vscode.Range(startPos, endPos),
+				uri: documentUri
+			});
+		}
 	}
 
-	// Find function patterns
-	KORE_PATTERNS.FUNCTION.lastIndex = 0; // Reset regex index
-	while ((match = KORE_PATTERNS.FUNCTION.exec(text)) !== null) {
-		const startPos = document.positionAt(match.index);
-		const endPos = document.positionAt(match.index + match[0].length);
-		const range = new vscode.Range(startPos, endPos);
+	return elements;
+}
 
-		// Create a Kore element and add it to the manager
-		const element: KoreElement = {
-			name: match[1],
-			type: 'function',
-			range,
-			uri: documentUri
-		};
-
-		koreElementManager.addElement(element);
-	}
+function decorationOptionsFor(elements: KoreElement[], type: KoreElement['type'], label: string): vscode.DecorationOptions[] {
+	return elements
+		.filter(e => e.type === type)
+		.map(e => ({ range: e.range, hoverMessage: `${label}: ${e.name}` }));
 }
 
 function updateDecorations(editor: vscode.TextEditor) {
@@ -248,39 +233,11 @@ function updateDecorations(editor: vscode.TextEditor) {
 	}
 
 	const document = editor.document;
-	const documentUri = document.uri;
+	const elements = parseKoreElements(document);
+	koreElementManager.replaceElementsForUri(document.uri, elements);
 
-	// Get current elements for this document
-	const elementsForDocument = koreElementManager.getElementsByUri(documentUri);
-
-	// Remove elements for this document
-	for (const element of elementsForDocument) {
-		koreElementManager.removeElement(element);
-	}
-
-	// Process the document to find new elements
-	processDocument(document);
-
-	// Get updated decorations
-	const updatedElements = koreElementManager.getElementsByUri(documentUri);
-
-	const datapackRanges = updatedElements
-		.filter(e => e.type === 'datapack')
-		.map(e => ({
-			range: e.range,
-			hoverMessage: `Datapack: ${e.name}`
-		}));
-
-	const functionRanges = updatedElements
-		.filter(e => e.type === 'function')
-		.map(e => ({
-			range: e.range,
-			hoverMessage: `Function: ${e.name}`
-		}));
-
-	// Apply decorations
-	editor.setDecorations(datapackDecoration, datapackRanges);
-	editor.setDecorations(functionDecoration, functionRanges);
+	editor.setDecorations(datapackDecoration, decorationOptionsFor(elements, 'datapack', 'Datapack'));
+	editor.setDecorations(functionDecoration, decorationOptionsFor(elements, 'function', 'Function'));
 
 	// The tree view refresh happens automatically via the onDidChangeElements event
 }
