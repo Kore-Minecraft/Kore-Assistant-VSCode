@@ -9,12 +9,8 @@ export interface KoreElement {
 
 export class KoreElementManager {
 	private elements: KoreElement[] = [];
-	private _onDidChangeElements: vscode.EventEmitter<void> = new vscode.EventEmitter<void>();
+	private readonly _onDidChangeElements = new vscode.EventEmitter<void>();
 	readonly onDidChangeElements: vscode.Event<void> = this._onDidChangeElements.event;
-
-	constructor() {
-		// Initialize empty
-	}
 
 	public addElement(element: KoreElement): void {
 		this.elements.push(element);

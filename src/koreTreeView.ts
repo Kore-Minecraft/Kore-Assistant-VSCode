@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
 import { KoreElement, koreElementManager } from './koreElements';
-import * as path from 'path';
+import * as path from 'node:path';
 
 export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeItem> {
-	private _onDidChangeTreeData: vscode.EventEmitter<KoreTreeItem | undefined | null | void> = new vscode.EventEmitter<KoreTreeItem | undefined | null | void>();
+	private readonly _onDidChangeTreeData = new vscode.EventEmitter<KoreTreeItem | undefined | null | void>();
 	readonly onDidChangeTreeData: vscode.Event<KoreTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 	private _groupByFile: boolean = false;
 	private _sortByFile: boolean = true;
 
-	constructor(groupByFile: boolean = false, sortByFile: boolean = true) {
+	constructor(private readonly extensionUri: vscode.Uri, groupByFile: boolean = false, sortByFile: boolean = true) {
 		this._groupByFile = groupByFile;
 		this._sortByFile = sortByFile;
 
@@ -85,16 +85,7 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 
 	private getFileRootItems(): KoreTreeItem[] {
 		const elements = koreElementManager.getElements();
-		const fileGroups = new Map<string, KoreElement[]>();
-
-		// Group elements by file
-		for (const element of elements) {
-			const filePath = element.uri.fsPath;
-			if (!fileGroups.has(filePath)) {
-				fileGroups.set(filePath, []);
-			}
-			fileGroups.get(filePath)!.push(element);
-		}
+		const fileGroups = Map.groupBy(elements, element => element.uri.fsPath);
 
 		// Create tree items for each file
 		const items: KoreTreeItem[] = [];
@@ -117,7 +108,7 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 	}
 
 	private getItemsInFile(fileItem: KoreTreeItem): KoreTreeItem[] {
-		if (!fileItem.fileData) return [];
+		if (!fileItem.fileData) {return [];}
 
 		const { elements } = fileItem.fileData;
 		const items: KoreTreeItem[] = [];
@@ -134,41 +125,22 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 	private getItemsByCategory(type: 'datapack' | 'function'): KoreTreeItem[] {
 		const elements = koreElementManager.getElementsByType(type);
 
-		// Group items by their path segments
-		const groups = new Map<string, KoreElement[]>();
-
-		// First, organize elements into groups
-		for (const element of elements) {
-			const pathParts = element.name.split('/');
-
-			if (pathParts.length === 1) {
-				// No path, just add directly
-				if (!groups.has('')) {
-					groups.set('', []);
-				}
-				groups.get('')!.push(element);
-			} else {
-				// Has path, add to appropriate group
-				const firstSegment = pathParts[0];
-				if (!groups.has(firstSegment)) {
-					groups.set(firstSegment, []);
-				}
-				groups.get(firstSegment)!.push(element);
-			}
-		}
+		// Group elements by their first path segment (elements without a path fall under '')
+		const groups = Map.groupBy(elements, element => {
+			const firstSlash = element.name.indexOf('/');
+			return firstSlash === -1 ? '' : element.name.slice(0, firstSlash);
+		});
 
 		const items: KoreTreeItem[] = [];
 
 		// Create tree items for direct elements (no path)
-		if (groups.has('')) {
-			for (const element of groups.get('')!) {
-				items.push(this.createTreeItemFromElement(element));
-			}
+		for (const element of groups.get('') ?? []) {
+			items.push(this.createTreeItemFromElement(element));
 		}
 
 		// Create tree items for groups
 		for (const [groupName, groupElements] of groups.entries()) {
-			if (groupName === '') continue; // Skip direct elements, already handled
+			if (groupName === '') {continue;} // Skip direct elements, already handled
 
 			const pathElements = groupElements.map(e => e.name);
 			items.push(new KoreTreeItem(
@@ -181,42 +153,12 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			));
 		}
 
-		// Sort items based on sorting preference
-		const sortedItems = this.sortItems(items);
-
-		// If sorting by file, add separators between different files
-		if (this._sortByFile && sortedItems.length > 0) {
-			const result: KoreTreeItem[] = [];
-			let currentFileName: string | undefined = undefined;
-
-			for (const item of sortedItems) {
-				if (item.contextValue === 'element' && item.description) {
-					const fileName = item.description.toString();
-
-					// If we're changing files, add a separator
-					if (currentFileName && fileName !== currentFileName) {
-						result.push(new KoreTreeItem(
-							'—'.repeat(10),
-							'separator',
-							'separator',
-							vscode.TreeItemCollapsibleState.None
-						));
-					}
-
-					currentFileName = fileName;
-				}
-
-				result.push(item);
-			}
-
-			return result;
-		}
-
-		return sortedItems;
+		// Sort items based on sorting preference, adding separators between files if needed
+		return this.finalizeItems(items);
 	}
 
 	private getItemsInGroup(groupItem: KoreTreeItem): KoreTreeItem[] {
-		if (!groupItem.groupData) return [];
+		if (!groupItem.groupData) {return [];}
 
 		const { pathPrefix, pathElements, type } = groupItem.groupData;
 		const items: KoreTreeItem[] = [];
@@ -226,35 +168,22 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			e => e.name.startsWith(pathPrefix + '/')
 		);
 
-		// Group by next path segment
-		const subGroups = new Map<string, KoreElement[]>();
-		const directItems: KoreElement[] = [];
-
-		for (const element of relevantElements) {
-			// Remove prefix and split the remaining path
-			const relativePath = element.name.substring(pathPrefix.length + 1);
-			const parts = relativePath.split('/');
-
-			if (parts.length === 1) {
-				// Direct child of this group
-				directItems.push(element);
-			} else {
-				// Belongs to a subgroup
-				const nextSegment = parts[0];
-				if (!subGroups.has(nextSegment)) {
-					subGroups.set(nextSegment, []);
-				}
-				subGroups.get(nextSegment)!.push(element);
-			}
-		}
+		// Group by next path segment (direct children of this group fall under '')
+		const subGroups = Map.groupBy(relevantElements, element => {
+			const relativePath = element.name.slice(pathPrefix.length + 1);
+			const nextSlash = relativePath.indexOf('/');
+			return nextSlash === -1 ? '' : relativePath.slice(0, nextSlash);
+		});
 
 		// Add direct items
-		for (const element of directItems) {
+		for (const element of subGroups.get('') ?? []) {
 			items.push(this.createTreeItemFromElement(element));
 		}
 
 		// Add subgroups
 		for (const [groupName, groupElements] of subGroups.entries()) {
+			if (groupName === '') {continue;} // Skip direct items, already handled
+
 			const newPathPrefix = `${pathPrefix}/${groupName}`;
 			items.push(new KoreTreeItem(
 				groupName,
@@ -266,38 +195,41 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			));
 		}
 
-		// Sort items based on sorting preference
+		// Sort items based on sorting preference, adding separators between files if needed
+		return this.finalizeItems(items);
+	}
+
+	// Sorts items and, when sorting by file, inserts separators between groups of different files
+	private finalizeItems(items: KoreTreeItem[]): KoreTreeItem[] {
 		const sortedItems = this.sortItems(items);
 
-		// If sorting by file, add separators between different files
-		if (this._sortByFile && sortedItems.length > 0) {
-			const result: KoreTreeItem[] = [];
-			let currentFileName: string | undefined = undefined;
-
-			for (const item of sortedItems) {
-				if (item.contextValue === 'element' && item.description) {
-					const fileName = item.description.toString();
-
-					// If we're changing files, add a separator
-					if (currentFileName && fileName !== currentFileName) {
-						result.push(new KoreTreeItem(
-							'—'.repeat(10),
-							'separator',
-							'separator',
-							vscode.TreeItemCollapsibleState.None
-						));
-					}
-
-					currentFileName = fileName;
-				}
-
-				result.push(item);
-			}
-
-			return result;
+		if (!this._sortByFile || sortedItems.length === 0) {
+			return sortedItems;
 		}
 
-		return sortedItems;
+		const result: KoreTreeItem[] = [];
+		let currentFileName: string | undefined;
+
+		for (const item of sortedItems) {
+			if (item.contextValue === 'element' && item.description) {
+				const fileName = item.description.toString();
+
+				if (currentFileName && fileName !== currentFileName) {
+					result.push(new KoreTreeItem(
+						'—'.repeat(10),
+						'separator',
+						'separator',
+						vscode.TreeItemCollapsibleState.None
+					));
+				}
+
+				currentFileName = fileName;
+			}
+
+			result.push(item);
+		}
+
+		return result;
 	}
 
 	// Generic sorting function that handles both name and file based sorting
@@ -306,13 +238,13 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			// Sort by file first, then by type, then by name
 			return items.sort((a, b) => {
 				// Always put groups/folders first
-				if (a.contextValue === 'group' && b.contextValue !== 'group') return -1;
-				if (a.contextValue !== 'group' && b.contextValue === 'group') return 1;
+				if (a.contextValue === 'group' && b.contextValue !== 'group') {return -1;}
+				if (a.contextValue !== 'group' && b.contextValue === 'group') {return 1;}
 
 				// If both items have a description (file path)
 				if (a.description && b.description) {
 					const fileCompare = a.description.toString().localeCompare(b.description.toString());
-					if (fileCompare !== 0) return fileCompare;
+					if (fileCompare !== 0) {return fileCompare;}
 				}
 
 				// If same file or no file, sort by type
@@ -327,8 +259,8 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			// Sort by name only
 			return items.sort((a, b) => {
 				// Always put groups/folders first
-				if (a.contextValue === 'group' && b.contextValue !== 'group') return -1;
-				if (a.contextValue !== 'group' && b.contextValue === 'group') return 1;
+				if (a.contextValue === 'group' && b.contextValue !== 'group') {return -1;}
+				if (a.contextValue !== 'group' && b.contextValue === 'group') {return 1;}
 
 				// Sort by type
 				if (a.type !== b.type) {
@@ -377,7 +309,8 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			fileName,
 			undefined,
 			tooltip,
-			lineNumber
+			lineNumber,
+			this.extensionUri
 		);
 	}
 
@@ -417,7 +350,8 @@ export class KoreTreeItem extends vscode.TreeItem {
 			elements: KoreElement[];
 		},
 		public readonly customTooltip?: string,
-		private readonly lineNumber?: number
+		private readonly lineNumber?: number,
+		extensionUri?: vscode.Uri
 	) {
 		super(label, collapsibleState);
 
@@ -435,12 +369,12 @@ export class KoreTreeItem extends vscode.TreeItem {
 		} else if (contextValue === 'element') {
 			// Element icons - use custom icons from extension assets
 			const iconName = type === 'datapack' ? 'datapack' : 'function';
-			const lightIconPath = path.join(__filename, '..', '..', 'dist', 'assets', `${iconName}-light.svg`);
-			const darkIconPath = path.join(__filename, '..', '..', 'dist', 'assets', `${iconName}-dark.svg`);
-			this.iconPath = {
-				light: vscode.Uri.file(lightIconPath),
-				dark: vscode.Uri.file(darkIconPath)
-			};
+			if (extensionUri) {
+				this.iconPath = {
+					light: vscode.Uri.joinPath(extensionUri, 'dist', 'assets', `${iconName}-light.svg`),
+					dark: vscode.Uri.joinPath(extensionUri, 'dist', 'assets', `${iconName}-dark.svg`)
+				};
+			}
 			this.tooltip = customTooltip || label;
 		} else if (contextValue === 'group') {
 			// Group icons

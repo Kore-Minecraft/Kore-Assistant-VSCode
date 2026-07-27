@@ -63,7 +63,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Setup TreeView
-	treeDataProvider = new KoreTreeDataProvider(groupByFile, sortByFile);
+	treeDataProvider = new KoreTreeDataProvider(context.extensionUri, groupByFile, sortByFile);
 	const treeView = vscode.window.createTreeView('koreExplorer', {
 		treeDataProvider: treeDataProvider,
 		showCollapseAll: true
