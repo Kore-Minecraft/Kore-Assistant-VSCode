@@ -38,8 +38,8 @@ Visit [kore.ayfri.com](https://kore.ayfri.com/) for official documentation.
 
 ## Requirements
 
-- Visual Studio Code 1.98.0 or newer
-- Kotlin Language Support
+- Visual Studio Code 1.125.0 or newer
+- A Kotlin language extension, e.g. the official [Kotlin by JetBrains](https://marketplace.visualstudio.com/items?itemName=JetBrains.kotlin-server) extension (powered by [kotlin-lsp](https://github.com/Kotlin/kotlin-lsp))
 
 ## Usage
 
@@ -77,9 +77,9 @@ Contributions to the Kore Assistant extension are welcome!
 
 1. Fork the [repository](https://github.com/Kore-Minecraft/Kore-Assistant-VSCode)
 2. Create your feature branch: `git checkout -b feature/amazing-feature`
-3. Install dependencies: `pnpm install`
+3. Install dependencies: `bun install`
 4. Make your changes
-5. Build and test: `pnpm run package`
+5. Build and test: `bun run package`
 6. Commit your changes: `git commit -m 'Add some amazing feature'`
 7. Push to the branch: `git push origin feature/amazing-feature`
 8. Open a Pull Request
