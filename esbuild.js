@@ -1,6 +1,5 @@
 const esbuild = require("esbuild");
-const fs = require("fs-extra");
-const path = require("path");
+const fs = require("node:fs");
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -35,13 +34,14 @@ const copyAssetsPlugin = {
 		build.onEnd(() => {
 			try {
 				// Ensure dist directory exists
-				fs.ensureDirSync('dist/assets');
-				
+				fs.mkdirSync('dist/assets', { recursive: true });
+
 				// Copy assets
-				fs.copySync('src/assets', 'dist/assets', {
-					overwrite: true
+				fs.cpSync('src/assets', 'dist/assets', {
+					recursive: true,
+					force: true
 				});
-				
+
 				// Log the contents of dist/assets to verify
 				const files = fs.readdirSync('dist/assets');
 				console.log('[assets] copied to dist/assets:', files);
