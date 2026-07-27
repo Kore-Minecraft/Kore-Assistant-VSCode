@@ -50,6 +50,14 @@
         "title": "Kore: Reveal Element"
       },
       {
+        "command": "kore-assistant.copyResourceLocation",
+        "title": "Kore: Copy Resource Location"
+      },
+      {
+        "command": "kore-assistant.copyOutputPath",
+        "title": "Kore: Copy Output Path"
+      },
+      {
         "command": "kore-assistant.toggleGrouping",
         "title": "Group by Type (currently grouped by type/path)",
         "tooltip": "Switch to grouping by file",
@@ -118,6 +126,18 @@
           "command": "kore-assistant.toggleSortingByName",
           "when": "view == koreExplorer && !sortByFile",
           "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "kore-assistant.copyResourceLocation",
+          "when": "view == koreExplorer && viewItem == element",
+          "group": "kore@1"
+        },
+        {
+          "command": "kore-assistant.copyOutputPath",
+          "when": "view == koreExplorer && viewItem == element",
+          "group": "kore@2"
         }
       ]
     }
