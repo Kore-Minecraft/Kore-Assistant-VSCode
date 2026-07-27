@@ -1,18 +1,29 @@
 # Kore Assistant
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://marketplace.visualstudio.com/items?itemName=ayfri.kore-assistant)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](https://marketplace.visualstudio.com/items?itemName=ayfri.kore-assistant)
 
 A Visual Studio Code extension providing powerful tools for working with [Kore](https://github.com/Ayfri/Kore), a Kotlin library for creating Minecraft datapacks without writing JSON.
 
 ## Features
 
-- **Gutter Icons**: Adds visual indicators in the editor gutter next to `dataPack` and `function` declarations in Kotlin files
-- **Hover Information**: Shows the name of datapacks and functions when hovering over the gutter icons
-- **Explorer View**: Provides a dedicated explorer view to browse all datapacks and functions in your workspace
-- **Navigation**: Quickly jump to datapack and function declarations through the explorer
-- **Sorting and Grouping**: Organize your Kore elements by file or by type
-- **Commands**: Run common Kore operations directly from VS Code
+- **Kore declaration discovery**: Detects datapacks, functions, predicates, recipes, advancements, world-generation resources, and the other supported Kore DSL builders in Kotlin files
+- **Gutter icons and hovers**: Marks declarations in the editor and shows their resource location, generated output path, source location, and relevant Minecraft command
+- **Kore Explorer**: Browses declarations by datapack and resource kind, or groups them by source file
+- **Navigation and copy actions**: Reveals the declaration source and copies its resource location, output path, command, or name from the explorer
+- **Sorting and grouping**: Switch between file and type views, then sort declarations by source file or name
 - **Snippets**: Code snippets for quickly creating Kore elements with proper imports
+
+### Kore Explorer
+
+Browse each datapack and its generated resources directly from the Activity Bar. Resource folders are grouped by their Kore declaration kind, and nested resource paths stay organized in the tree.
+
+![Kore Explorer showing a datapack and its resources](images/screenshot-kore-explorer.png)
+
+### Declaration Details
+
+Hover a gutter icon to inspect the declaration's generated resource location and output path without leaving the source file.
+
+![Kore declaration hover details](images/screenshot-kore-code-hover.png)
 
 ## Installation
 
@@ -43,11 +54,12 @@ Visit [kore.ayfri.com](https://kore.ayfri.com/) for official documentation.
 
 ## Usage
 
-1. Open a Kotlin file containing Kore's datapack and function declarations
+1. Open a Kotlin file containing Kore declarations, such as `dataPack`, `function`, `predicate`, or `craftingShaped`
 2. The extension will automatically detect and highlight them with gutter icons
-3. Use the Kore Explorer in the sidebar to browse and navigate your Kore elements
-4. Configure display preferences using the view toolbar buttons
-5. Use the snippets to quickly create new Kore elements (see snippets section below)
+3. Use the Kore Explorer in the Activity Bar to browse declarations by datapack and resource kind
+4. Select a declaration to jump to its Kotlin source, or use its context menu to copy its generated value
+5. Configure grouping and sorting with the view toolbar buttons
+6. Use the snippets to quickly create new Kore elements (see snippets section below)
 
 To refresh the icons manually, run the "Kore: Refresh Gutter Icons" command from the command palette.
 
