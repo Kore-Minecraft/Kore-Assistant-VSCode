@@ -50,12 +50,8 @@
         "title": "Kore: Reveal Element"
       },
       {
-        "command": "kore-assistant.copyResourceLocation",
-        "title": "Kore: Copy Resource Location"
-      },
-      {
-        "command": "kore-assistant.copyOutputPath",
-        "title": "Kore: Copy Output Path"
+        "command": "kore-assistant.copyValue",
+        "title": "Copy..."
       },
       {
         "command": "kore-assistant.toggleGrouping",
@@ -65,7 +61,7 @@
       },
       {
         "command": "kore-assistant.toggleGroupingByFile",
-        "title": "Group by Path (currently grouped by file)",
+        "title": "Group by File (currently grouped by file)",
         "tooltip": "Switch to grouping by type/path",
         "icon": "$(file-directory)"
       },
@@ -101,6 +97,7 @@
       "kore-explorer": [
         {
           "id": "koreExplorer",
+          "icon": "dist/assets/kore-white.svg",
           "name": ""
         }
       ]
@@ -130,14 +127,9 @@
       ],
       "view/item/context": [
         {
-          "command": "kore-assistant.copyResourceLocation",
+          "command": "kore-assistant.copyValue",
           "when": "view == koreExplorer && viewItem == element",
           "group": "kore@1"
-        },
-        {
-          "command": "kore-assistant.copyOutputPath",
-          "when": "view == koreExplorer && viewItem == element",
-          "group": "kore@2"
         }
       ]
     }

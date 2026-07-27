@@ -1,16 +1,16 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import { isFunctionKind, kindById } from './koreDeclarations';
+import { displayNameFor, isFunctionKind, kindById } from './koreDeclarations';
 import { koreElementManager, KoreElement, ResolvedKoreElement } from './koreElements';
 import { parseKoreDeclarations } from './koreParser';
-import { KoreTreeDataProvider } from './koreTreeView';
+import { KoreTreeDataProvider, KoreTreeItem } from './koreTreeView';
 
 // Delay before rescanning a document after an edit, to avoid a full rescan on every keystroke
 const RESCAN_DEBOUNCE_MS = 300;
 
-// Decoration types for gutter icons: function-family kinds keep the function icon, DATA_PACK keeps the
-// datapack icon, and every other (JSON-backed) kind gets a generic json icon.
+// Decoration types for gutter icons: function-family kinds keep the function icon, DATA_PACK keeps the Kore
+// logo mark, and every other (JSON-backed) kind gets a generic json icon.
 let datapackDecoration: vscode.TextEditorDecorationType;
 let functionDecoration: vscode.TextEditorDecorationType;
 let jsonDecoration: vscode.TextEditorDecorationType;
@@ -126,20 +126,37 @@ export function activate(context: vscode.ExtensionContext) {
 		editor.selection = new vscode.Selection(element.range.start, element.range.start);
 	});
 
-	// Register commands to copy the resource location / output path of a tree item to the clipboard
-	const copyResourceLocationCommand = vscode.commands.registerCommand(
-		'kore-assistant.copyResourceLocation',
-		async (element: ResolvedKoreElement) => {
-			if (element.resourceLocation) {
-				await vscode.env.clipboard.writeText(element.resourceLocation);
+	// Right-click "Copy..." opens a QuickPick so each field's real value is visible (grayed, right-aligned)
+	// before copying - a plain context-menu entry can't show that, its title is a static string from package.json.
+	const copyValueCommand = vscode.commands.registerCommand(
+		'kore-assistant.copyValue',
+		async (item: KoreTreeItem) => {
+			const element = item.element;
+			if (!element) {
+				return;
 			}
-		}
-	);
 
-	const copyOutputPathCommand = vscode.commands.registerCommand(
-		'kore-assistant.copyOutputPath',
-		async (element: ResolvedKoreElement) => {
-			await vscode.env.clipboard.writeText(element.outputPath);
+			const kind = kindById(element.kindId);
+			const fields: { label: string; value: string }[] = [];
+
+			if (kind?.id !== 'DATA_PACK') {
+				fields.push({ label: 'Namespace', value: element.resolvedNamespace });
+			}
+			if (element.resourceLocation) {
+				fields.push({ label: 'Resource Location', value: element.resourceLocation });
+			}
+			fields.push({ label: 'Output Path', value: element.outputPath });
+			if (element.command) {
+				fields.push({ label: 'Command', value: element.command });
+			}
+
+			const picked = await vscode.window.showQuickPick(
+				fields.map(f => ({ label: f.label, description: f.value })),
+				{ placeHolder: 'Select a value to copy' }
+			);
+			if (picked) {
+				await vscode.env.clipboard.writeText(picked.description!);
+			}
 		}
 	);
 
@@ -189,8 +206,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(refreshCommand);
 	context.subscriptions.push(testCommand);
 	context.subscriptions.push(revealElementCommand);
-	context.subscriptions.push(copyResourceLocationCommand);
-	context.subscriptions.push(copyOutputPathCommand);
+	context.subscriptions.push(copyValueCommand);
 	context.subscriptions.push(toggleGroupingCommand);
 	context.subscriptions.push(toggleGroupingByFileCommand);
 	context.subscriptions.push(toggleSortingCommand);
@@ -259,16 +275,26 @@ function decorationTypeFor(element: ResolvedKoreElement): vscode.TextEditorDecor
 	return isFunctionKind(kind) ? functionDecoration : jsonDecoration;
 }
 
-function hoverMessageFor(element: ResolvedKoreElement): string {
+// Markdown (not a plain string) so paths render as code and the kind name is bold, matching the tree tooltip.
+function hoverMessageFor(element: ResolvedKoreElement): vscode.MarkdownString {
 	const kind = kindById(element.kindId)!;
-	const lines = [`${kind.id === 'DATA_PACK' ? 'Datapack' : 'Resource'}: ${element.name}`];
+	const title = kind.id === 'DATA_PACK' ? 'Datapack' : displayNameFor(kind);
 
-	if (element.resourceLocation) {
-		lines.push(`Resource Location: ${element.resourceLocation}`);
+	const md = new vscode.MarkdownString();
+	md.appendMarkdown(`**${title}**: ${element.name}\n\n`);
+
+	if (kind.id !== 'DATA_PACK') {
+		md.appendMarkdown(`Namespace: \`${element.resolvedNamespace}\`  \nData Pack: ${element.resolvedDataPackName}\n\n`);
 	}
-	lines.push(`Output Path: ${element.outputPath}`);
+	if (element.resourceLocation) {
+		md.appendMarkdown(`Resource Location: \`${element.resourceLocation}\`\n\n`);
+	}
+	md.appendMarkdown(`Output Path: \`${element.outputPath}\``);
+	if (element.command) {
+		md.appendMarkdown(`\n\nCommand: \`${element.command}\``);
+	}
 
-	return lines.join('\n');
+	return md;
 }
 
 function updateDecorations(editor: vscode.TextEditor) {
@@ -314,9 +340,6 @@ export function deactivate() {
 	}
 	if (functionDecoration) {
 		functionDecoration.dispose();
-	}
-	if (jsonDecoration) {
-		jsonDecoration.dispose();
 	}
 
 	if (outputChannel) {
