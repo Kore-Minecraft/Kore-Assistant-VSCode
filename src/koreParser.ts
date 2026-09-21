@@ -19,6 +19,9 @@ const DIRECTORY_PARAMETER_INDEX = 2;
 
 const DATA_PACK_BUILDER_NAME = 'dataPack';
 
+const NAMESPACE_STATEMENT_PATTERN = /^namespace\s*=(?!=)\s*([\s\S]+)$/;
+const NAMED_ARG_PATTERN = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*=(?!=)\s*([\s\S]*)$/;
+
 export interface RawKoreDeclaration {
 	kindId: string;
 	name: string;
@@ -232,7 +235,6 @@ function nearestEnclosingDataPackName(ancestors: GroupFrame[]): KoreStringValue 
  * reference plugin's `namespaceAssignmentInBlock`.
  */
 function namespaceAssignmentInBody(bodyText: string): KoreStringValue | undefined {
-	const namespaceStatement = /^namespace\s*=(?!=)\s*([\s\S]+)$/;
 	let depth = 0;
 	let stmtStart = 0;
 	let lastMatch: KoreStringValue | undefined;
@@ -240,7 +242,7 @@ function namespaceAssignmentInBody(bodyText: string): KoreStringValue | undefine
 	let i = 0;
 
 	const checkStatement = (raw: string) => {
-		const m = namespaceStatement.exec(raw.trim());
+		const m = NAMESPACE_STATEMENT_PATTERN.exec(raw.trim());
 		if (m) {
 			lastMatch = koreStringValueOf(m[1].trim());
 		}
@@ -292,15 +294,13 @@ function namespaceAssignmentInBody(bodyText: string): KoreStringValue | undefine
 function parseArgs(argsText: string): ParsedArgs {
 	const positional: string[] = [];
 	const named = new Map<string, string>();
-	const namedArgPattern = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*=(?!=)\s*([\s\S]*)$/;
-
 	for (const part of splitTopLevelArgs(argsText)) {
 		if (part.startsWith('{')) {
 			// A lambda passed inline (not as the trailing block) - never a name/namespace/directory value.
 			continue;
 		}
 
-		const m = namedArgPattern.exec(part);
+		const m = NAMED_ARG_PATTERN.exec(part);
 		if (m) {
 			named.set(m[1], m[2].trim());
 		} else {
@@ -553,14 +553,15 @@ function skipWhitespaceAndComments(text: string, i: number): number {
 	}
 }
 
+// Char-code tests rather than one-char regexes: these run once per character of every scanned file.
 function isWhitespace(c: string): boolean {
-	return /\s/.test(c);
+	return c <= ' ' || (c > '\x7f' && /\s/.test(c));
 }
 
 function isIdentifierStart(c: string): boolean {
-	return /[A-Za-z_$]/.test(c);
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '_' || c === '$';
 }
 
 function isIdentifierPart(c: string): boolean {
-	return /[A-Za-z0-9_$]/.test(c);
+	return isIdentifierStart(c) || (c >= '0' && c <= '9');
 }
