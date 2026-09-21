@@ -17,8 +17,18 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `craftingShaped` checks: at most 3 rows of at most 3 characters, every row as wide as the first, no empty row, every pattern character mapped by a `key` / `keys` entry, single-character non-space keys, and unused keys greyed out
 - `kore-assistant.diagnostics.enabled` setting to turn the checks off
 - Kore project detection from `build.gradle(.kts)`, `pom.xml` and `libs.versions.toml` (Kore version, Gradle plugin applied), logged in the output channel
+- Explorer groupings: "Output Structure" (datapack > namespace > resource folder, the generated layout, where the 20 recipe kinds collapse into one `recipe` folder) and "Flat List", next to the existing kind and source file views
+- Explorer sorting by name, kind, namespace or declaration order; picking the active criterion again flips the direction
+- Explorer filter matching the name, namespace or output path of every declaration, with the match count shown above the tree and on the view badge
+- Element counts on datapack, namespace, folder, category, path group and file rows, a `~` marker on declarations whose name is built at runtime, and a hover on every container row listing its output folder, elements, namespaces, kinds, folders or files
+- "Copy All Resource Locations" and "Copy All Output Paths" on container rows, one value per line
+- "Kore: Reveal in Kore Explorer" in the Kotlin editor context menu, selecting the declaration under the cursor in the tree
+- Refresh button rescanning the workspace, and a file watcher picking up Kotlin files changed outside VS Code (git checkout, generated sources)
+- Grouping and sorting choices are remembered per workspace, and collapsed rows stay collapsed across refreshes
 
 ### Changed
+- Grouping and sorting are picked from two quick picks instead of toggle buttons
+- Declarations grouped by file or listed flat show their full name rather than the last path segment
 - Explorer tooltips are Markdown, with every value rendered as code, and match the editor hover
 - Copy entries are direct menu items instead of the "Copy..." picker
 - A trailing comment after a name argument or a `namespace = "..."` statement no longer makes the value dynamic

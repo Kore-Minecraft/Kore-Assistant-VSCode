@@ -10,9 +10,9 @@ A Visual Studio Code extension providing powerful tools for working with [Kore](
 - **Workspace-aware resolution**: A `dataPack(NAMESPACE)`, `function("leaf_$id")` or `lootTable(Names.PREFIX + "chest")` resolves through the `val` constants of the workspace (chains like `val NS = "${BASE}_pack"` included), and a `fun DataPack.setup()` / `fun setup(dp: DataPack)` / `context(dp: DataPack) fun setup()` helper is filed under the datapack whose `dataPack { }` block calls it (directly or through other helpers). Helpers nobody calls fall back to the datapack declared in the closest folder, so a multi-project workspace like the Kore `Examples` repo keeps each project's helpers under its own pack
 - **Gutter icons and hovers**: Marks declarations in the editor and shows their resource location, generated output path, source location, and relevant Minecraft command
 - **Diagnostics**: Warns when two declarations write the same file (the last one generated silently wins), reports a `function("helper")` command whose target is not declared in the project with quick fixes (rename to a close match, call it under the namespace that declares it, swap inverted `namespace, name` arguments, or create the missing function), and checks `craftingShaped` recipes for grid size, row width, missing and unused keys. Turn them off with `kore-assistant.diagnostics.enabled`
-- **Kore Explorer**: Browses declarations by datapack and resource kind, or groups them by source file
-- **Navigation and copy actions**: Reveals the declaration source, and every explorer node has a context menu to copy its name, namespace, resource location, output path or folder, command, file path or `file:line` declaration path
-- **Sorting and grouping**: Switch between file and type views, then sort declarations by source file or name
+- **Kore Explorer**: Browses declarations as the generated output structure (datapack > namespace > resource folder), by datapack and declaration kind with nested path folders, by source file, or as a flat list. Container rows show how many elements they hold and a hover summarizing their output folder, namespaces, kinds and files
+- **Navigation and copy actions**: Reveals the declaration source, "Reveal in Kore Explorer" from the editor context menu jumps to the row of the declaration under the cursor, and every explorer node has a context menu to copy its name, namespace, resource location, output path or folder, command, file path or `file:line` declaration path; container rows also copy every resource location or output path underneath, one per line
+- **Sorting, grouping and filter**: Sort declarations by name, kind, namespace or declaration order in either direction, and filter the tree by name, namespace or output path. Grouping and sorting are remembered per workspace
 - **Snippets**: Code snippets for quickly creating Kore elements with proper imports
 
 ### Kore Explorer
@@ -59,9 +59,10 @@ Visit [kore.ayfri.com](https://kore.ayfri.com/) for official documentation.
 1. Open a Kotlin file containing Kore declarations, such as `dataPack`, `function`, `predicate`, `blockTag`, or `recipes { craftingShaped(...) }`
 2. The extension will automatically detect and highlight them with gutter icons
 3. Use the Kore Explorer in the Activity Bar to browse declarations by datapack and resource kind
-4. Select a declaration to jump to its Kotlin source, or right-click any node (datapack, category, folder, file or declaration) to copy one of its values or open its source
-5. Configure grouping and sorting with the view toolbar buttons
-6. Use the snippets to quickly create new Kore elements (see snippets section below)
+4. Select a declaration to jump to its Kotlin source, or right-click any node (datapack, namespace, folder, category, file or declaration) to copy one of its values or open its source
+5. Use the view toolbar to filter the tree, pick a grouping (output structure, kind, source file, flat list), pick a sort criterion (picking the active one again flips the direction) or rescan the workspace
+6. Right-click in a Kotlin editor and pick "Kore: Reveal in Kore Explorer" to select the declaration under the cursor in the tree
+7. Use the snippets to quickly create new Kore elements (see snippets section below)
 
 To refresh the icons manually, run the "Kore: Refresh Gutter Icons" command from the command palette.
 
@@ -75,8 +76,7 @@ The extension provides the following snippets for Kotlin files:
 ## Extension Settings
 
 - `kore-assistant.diagnostics.enabled` (default `true`): report duplicate declarations, unresolved `function` commands and invalid `craftingShaped` patterns in the Problems view
-- Group elements by file or type
-- Sort elements by name or file location
+- Explorer grouping (output structure, kind, source file, flat list), sort criterion and direction are toolbar choices remembered per workspace, not settings
 
 ## Feedback & Issues
 
