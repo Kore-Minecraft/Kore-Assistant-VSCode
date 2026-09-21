@@ -4,7 +4,7 @@ All notable changes to the "Kore Assistant" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
+## [0.4.0] - 2026-09-21
 
 ### Added
 
