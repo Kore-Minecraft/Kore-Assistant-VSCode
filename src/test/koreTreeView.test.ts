@@ -10,7 +10,7 @@ const fileB = vscode.Uri.file('/ws/B.kt');
 const pathA = vscode.workspace.asRelativePath(fileA, false);
 
 function element(uri: vscode.Uri, kindId: string, name: string, line = 0, extra: Partial<KoreElement> = {}): KoreElement {
-	return { kindId, name, isDynamic: false, dynamicFields: [], range: new vscode.Range(line, 0, line, 1), uri, ...extra };
+	return { kindId, name, isDynamic: false, dynamicFields: [], offset: 0, nameArgRange: { start: 0, end: 0 }, range: new vscode.Range(line, 0, line, 1), uri, ...extra };
 }
 
 function labels(items: KoreTreeItem[]): string[] {
@@ -233,9 +233,9 @@ suite('KoreTreeDataProvider', () => {
 				filePath: fileA.fsPath,
 				declarationPath: `${pathA}:3`,
 			});
-			assert.strictEqual(fn.contextValue, 'element name namespace resourceLocation outputPath command filePath declarationPath');
+			assert.strictEqual(fn.contextValue, 'element command declarationPath filePath name namespace outputPath resourceLocation');
 			assert.strictEqual(biome.values.command, undefined);
-			assert.strictEqual(biome.contextValue, 'element name namespace resourceLocation outputPath filePath declarationPath');
+			assert.strictEqual(biome.contextValue, 'element declarationPath filePath name namespace outputPath resourceLocation');
 		});
 	});
 
@@ -252,7 +252,7 @@ suite('KoreTreeDataProvider', () => {
 				filePath: fileA.fsPath,
 				declarationPath: `${pathA}:2`,
 			});
-			assert.strictEqual(declared.contextValue, 'datapack name namespace outputPath filePath declarationPath');
+			assert.strictEqual(declared.contextValue, 'datapack declarationPath filePath name namespace outputPath');
 			assert.strictEqual((declared.tooltip as vscode.MarkdownString).value.split('  \n')[0], '**Data Pack** `p`');
 			assert.deepStrictEqual(unknown.values, {});
 			assert.strictEqual(unknown.contextValue, 'datapack');
@@ -274,7 +274,7 @@ suite('KoreTreeDataProvider', () => {
 
 			const [file] = await provider.getChildren();
 			assert.deepStrictEqual(file.values, { name: 'A.kt', filePath: fileA.fsPath, declarationPath: pathA });
-			assert.strictEqual(file.contextValue, 'file name filePath declarationPath');
+			assert.strictEqual(file.contextValue, 'file declarationPath filePath name');
 		});
 
 		test('icons come from the extension assets per kind family', async () => {

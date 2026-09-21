@@ -1,13 +1,21 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { KoreElement, KoreElementManager, KoreFile, koreFileFrom, UNKNOWN_DATA_PACK } from '../koreElements';
+import { KoreElement, KoreElementManager, KoreFile, UNKNOWN_DATA_PACK } from '../koreElements';
 import { parseKotlinFile } from '../koreParser';
 
 const fileA = vscode.Uri.file('/ws/A.kt');
 const fileB = vscode.Uri.file('/ws/B.kt');
+const constantsKt = vscode.Uri.file('/ws/Constants.kt');
+const otherProject = vscode.Uri.file('/other/Main.kt');
 
 function element(uri: vscode.Uri, kindId: string, name: string, extra: Partial<KoreElement> = {}): KoreElement {
-	return { kindId, name, isDynamic: false, dynamicFields: [], range: new vscode.Range(0, 0, 0, 1), uri, ...extra };
+	return { kindId, name, isDynamic: false, dynamicFields: [], offset: 0, nameArgRange: { start: 0, end: 0 }, range: new vscode.Range(0, 0, 0, 1), uri, ...extra };
+}
+
+/** A file scanned for real, with line 0 ranges since only offsets matter to the resolver. */
+function file(uri: vscode.Uri, text: string): KoreFile {
+	const parsed = parseKotlinFile(text);
+	return { ...parsed, declarations: parsed.declarations.map(decl => ({ ...decl, range: new vscode.Range(0, decl.offset, 0, decl.offset + 1), uri })) };
 }
 
 suite('KoreElementManager', () => {
@@ -85,24 +93,16 @@ suite('KoreElementManager', () => {
 		assert.strictEqual(manager.getElementsByKindId('FUNCTION')[0].resolvedDataPackName, 'explicit');
 	});
 
-	test('replacing a file swaps its elements and leaves other files alone', () => {
+	test('replacing a file swaps its elements, an empty list or a removal drops it', () => {
 		manager.replaceElementsForUris([
 			[fileA, [element(fileA, 'FUNCTION', 'a1')]],
 			[fileB, [element(fileB, 'FUNCTION', 'b1')]],
 		]);
 		manager.replaceElementsForUri(fileA, [element(fileA, 'FUNCTION', 'a2')]);
-
 		assert.deepStrictEqual(manager.getElements().map(e => e.name).sort(), ['a2', 'b1']);
-	});
-
-	test('replacing with an empty list and removing a file both drop it', () => {
-		manager.replaceElementsForUris([
-			[fileA, [element(fileA, 'FUNCTION', 'a')]],
-			[fileB, [element(fileB, 'FUNCTION', 'b')]],
-		]);
 
 		manager.replaceElementsForUri(fileA, []);
-		assert.deepStrictEqual(manager.getElements().map(e => e.name), ['b']);
+		assert.deepStrictEqual(manager.getElements().map(e => e.name), ['b1']);
 
 		manager.removeElementsForUris([fileB]);
 		assert.deepStrictEqual(manager.getElements(), []);
@@ -122,15 +122,18 @@ suite('KoreElementManager', () => {
 		assert.strictEqual(changes, 3);
 	});
 
-	test('caches the resolved list until the next change', () => {
+	test('caches the resolved list and its indexes until the next change', () => {
 		manager.replaceElementsForUri(fileA, [element(fileA, 'FUNCTION', 'a')]);
 		const first = manager.getElements();
 		assert.strictEqual(manager.getElements(), first);
+		assert.strictEqual(manager.getElementsForUri(fileA), manager.getElementsForUri(fileA));
+		assert.strictEqual(manager.getElementsByKindId('FUNCTION'), manager.getElementsByKindId('FUNCTION'));
 
 		manager.replaceElementsForUri(fileB, [element(fileB, 'DATA_PACK', 'p')]);
 		const second = manager.getElements();
 		assert.notStrictEqual(second, first);
 		assert.strictEqual(second.find(e => e.name === 'a')!.resolvedDataPackName, 'p');
+		assert.strictEqual(manager.getElementsForUri(fileA)[0].resolvedDataPackName, 'p');
 	});
 
 	test('filters by uri and by kind', () => {
@@ -144,18 +147,8 @@ suite('KoreElementManager', () => {
 		assert.deepStrictEqual(manager.getElementsByKindId('NOPE'), []);
 	});
 
-	suite('workspace resolution', () => {
-		const constantsKt = vscode.Uri.file('/ws/Constants.kt');
-		const otherProject = vscode.Uri.file('/other/Main.kt');
-
-		function file(uri: vscode.Uri, text: string): KoreFile {
-			const parsed = parseKotlinFile(text);
-			return koreFileFrom(parsed, parsed.declarations.map(({ offset, ...fields }) => ({
-				...fields, range: new vscode.Range(0, offset, 0, offset + 1), uri,
-			})));
-		}
-
-		teardown(() => manager.removeElementsForUris([constantsKt, otherProject]));
+	suite('constant resolution', () => {
+		const names = (uri: vscode.Uri) => manager.getElementsForUri(uri).map(e => [e.name, e.isDynamic]);
 
 		test('resolves a constant datapack name and string-template parts from a `val` in another file', () => {
 			manager.replaceElementsForUris([
@@ -179,11 +172,40 @@ suite('KoreElementManager', () => {
 				[constantsKt, file(constantsKt, 'function(X) { }')],
 			]);
 
-			const names = (uri: vscode.Uri) => manager.getElementsForUri(uri).map(e => [e.name, e.isDynamic]);
 			assert.deepStrictEqual(names(fileA), [['a', false], ['Y', true]]);
 			assert.deepStrictEqual(names(fileB), [['b', false]]);
 			assert.deepStrictEqual(names(constantsKt), [['X', true]]);
 		});
+
+		test('follows dot-qualified references on their last segment and concatenations', () => {
+			manager.replaceElementsForUris([
+				[constantsKt, file(constantsKt, 'object Names { const val PREFIX = "blocks/"; val LEAF = "oak" }')],
+				[fileA, file(fileA, 'dataPack("p") { lootTable(Names.PREFIX + Names.LEAF + "_log") { }\nfunction("f_" + this.LEAF) { } }')],
+			]);
+
+			assert.deepStrictEqual(names(fileA), [['blocks/oak_log', false], ['f_oak', false], ['p', false]]);
+		});
+
+		test('follows `val A = B` chains and templates inside constants, giving up on a cycle', () => {
+			manager.replaceElementsForUris([
+				[constantsKt, file(constantsKt, 'val BASE = "kore"\nval NS = "${BASE}_pack"\nval ALIAS = NS\nval LOOP_A = LOOP_B\nval LOOP_B = LOOP_A')],
+				[fileA, file(fileA, 'dataPack(ALIAS) { function(LOOP_A) { } }')],
+			]);
+
+			assert.deepStrictEqual(names(fileA), [['LOOP_A', true], ['kore_pack', false]]);
+			assert.strictEqual(manager.getElementsForUri(fileA)[0].resolvedDataPackName, 'kore_pack');
+		});
+
+		test('a local `val` shadows the file-level one inside its block only, a file-level one is visible before its line', () => {
+			manager.replaceElementsForUris([
+				[fileA, file(fileA, 'val NAME = "top"\nfun a() { val NAME = "local"; function(NAME) { } }\nfun b() { function(NAME) { } }\nfunction(EARLY) { }\nval EARLY = "early"')],
+			]);
+
+			assert.deepStrictEqual(names(fileA).map(([name]) => name), ['local', 'top', 'early']);
+		});
+	});
+
+	suite('datapack ownership', () => {
 
 		test('follows extension-function calls from a dataPack block, transitively and across files', () => {
 			manager.replaceElementsForUris([
@@ -194,6 +216,15 @@ suite('KoreElementManager', () => {
 			const [h] = manager.getElementsForUri(fileB);
 			assert.strictEqual(h.resolvedDataPackName, 'p');
 			assert.strictEqual(h.command, '/function p:h');
+		});
+
+		test('a function taking the datapack as a parameter or context parameter is owned the same way', () => {
+			manager.replaceElementsForUris([
+				[fileA, file(fileA, 'dataPack("p") { byParam(this); byContext() }\ndataPack("q") { }')],
+				[fileB, file(fileB, 'fun byParam(dp: DataPack) { function("a") { } }\ncontext(dp: DataPack) fun byContext() { function("b") { } }')],
+			]);
+
+			assert.deepStrictEqual(manager.getElementsForUri(fileB).map(e => e.resolvedDataPackName), ['p', 'p']);
 		});
 
 		test('a same-file function of the same name shadows the DataPack extension elsewhere', () => {

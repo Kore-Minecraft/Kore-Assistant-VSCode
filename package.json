@@ -42,10 +42,6 @@
         "title": "Kore: Refresh Gutter Icons"
       },
       {
-        "command": "kore-assistant.testExtension",
-        "title": "Kore: Test Extension"
-      },
-      {
         "command": "kore-assistant.revealKoreElement",
         "title": "Kore: Reveal Element"
       },

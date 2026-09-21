@@ -4,30 +4,16 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { KoreAssistantApi } from '../extension';
 
-const COMMANDS = [
-	'kore-assistant.refreshGutterIcons',
-	'kore-assistant.testExtension',
-	'kore-assistant.revealKoreElement',
-	'kore-assistant.openDeclaration',
-	'kore-assistant.copyName',
-	'kore-assistant.copyNamespace',
-	'kore-assistant.copyResourceLocation',
-	'kore-assistant.copyOutputPath',
-	'kore-assistant.copyCommand',
-	'kore-assistant.copyFilePath',
-	'kore-assistant.copyDeclarationPath',
-	'kore-assistant.toggleGrouping',
-	'kore-assistant.toggleGroupingByFile',
-	'kore-assistant.toggleSorting',
-	'kore-assistant.toggleSortingByName',
-];
-
 // The extension runs from the dist bundle, with its own module instances: its element store is only reachable
 // through the activate() exports, not by importing ../koreElements from the out/ build.
+function extension(): vscode.Extension<KoreAssistantApi> {
+	const found = vscode.extensions.getExtension<KoreAssistantApi>('Ayfri.kore-assistant');
+	assert.ok(found, 'extension not found');
+	return found;
+}
+
 async function activatedApi(): Promise<KoreAssistantApi> {
-	const extension = vscode.extensions.getExtension<KoreAssistantApi>('Ayfri.kore-assistant');
-	assert.ok(extension, 'extension not found');
-	return extension.activate();
+	return extension().activate();
 }
 
 function nextChange(api: KoreAssistantApi): Promise<void> {
@@ -42,11 +28,13 @@ function nextChange(api: KoreAssistantApi): Promise<void> {
 }
 
 suite('extension', () => {
-	test('activates and registers every contributed command', async () => {
+	test('activates and registers every command contributed in package.json', async () => {
 		await activatedApi();
 
+		const contributed: { command: string }[] = extension().packageJSON.contributes.commands;
 		const registered = new Set(await vscode.commands.getCommands(true));
-		for (const command of COMMANDS) {
+		assert.ok(contributed.length > 0);
+		for (const { command } of contributed) {
 			assert.ok(registered.has(command), `${command} not registered`);
 		}
 	});

@@ -1,28 +1,24 @@
 import * as vscode from 'vscode';
 import { isFunctionKind, kindById } from './koreDeclarations';
-import { koreElementManager, KoreElement, KoreFile, koreFileFrom, koreFileOf, ResolvedKoreElement } from './koreElements';
+import { koreElementManager, KoreElement, KoreFile, koreFileOf, ResolvedKoreElement } from './koreElements';
 import { parseKotlinFile } from './koreParser';
 import { CopyableField, elementTooltip, KoreTreeDataProvider, KoreTreeItem } from './koreTreeView';
 
-// Delay before rescanning a document after an edit, to avoid a full rescan on every keystroke
+/** Delay before rescanning a document after an edit, so a full-document scan doesn't run on every keystroke. */
 const RESCAN_DEBOUNCE_MS = 300;
 
 const KOTLIN_FILES_GLOB = '**/*.kt';
-// Gradle/IDE output folders can hold generated Kotlin that would show up as duplicates in the tree.
+/** Gradle/IDE output folders can hold generated Kotlin that would show up as duplicates in the tree. */
 const KOTLIN_FILES_EXCLUDE = '**/{build,.gradle,.idea,node_modules}/**';
 
 const COPYABLE_FIELDS: CopyableField[] = ['name', 'namespace', 'resourceLocation', 'outputPath', 'command', 'filePath', 'declarationPath'];
 
-// Decoration types for gutter icons: function-family kinds keep the function icon, DATA_PACK keeps the Kore
-// logo mark, and every other (JSON-backed) kind gets a generic json icon.
 let datapackDecoration: vscode.TextEditorDecorationType;
 let functionDecoration: vscode.TextEditorDecorationType;
 let jsonDecoration: vscode.TextEditorDecorationType;
-
 let outputChannel: vscode.OutputChannel;
 let treeDataProvider: KoreTreeDataProvider;
 
-// View options
 let groupByFile = false;
 let sortByFile = true;
 
@@ -32,13 +28,10 @@ export interface KoreAssistantApi {
 }
 
 export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
-	outputChannel = vscode.window.createOutputChannel("Kore Assistant");
-	outputChannel.appendLine("Kore Assistant is now active");
-
-	// Set the initial context values for button visibility
+	outputChannel = vscode.window.createOutputChannel('Kore Assistant');
 	updateContextVariables();
 
-	// Gutter icons use the dark variants only, for better visibility in all themes
+	// Gutter icons use the dark variants only, for better visibility in all themes.
 	const gutterDecoration = (icon: string) => vscode.window.createTextEditorDecorationType({
 		gutterIconPath: vscode.Uri.joinPath(context.extensionUri, 'dist', 'assets', `${icon}-dark.svg`),
 		gutterIconSize: '100%',
@@ -48,10 +41,7 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 	jsonDecoration = gutterDecoration('json');
 
 	treeDataProvider = new KoreTreeDataProvider(context.extensionUri, groupByFile, sortByFile);
-	const treeView = vscode.window.createTreeView('koreExplorer', {
-		treeDataProvider,
-		showCollapseAll: true
-	});
+	const treeView = vscode.window.createTreeView('koreExplorer', { treeDataProvider, showCollapseAll: true });
 
 	function toggleGroupingMode() {
 		groupByFile = !groupByFile;
@@ -67,18 +57,10 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 		updateContextVariables();
 	}
 
-	// Context variables back the `when` clauses of the view/title toggle buttons
+	/** Context variables back the `when` clauses of the view/title toggle buttons. */
 	function updateContextVariables() {
 		vscode.commands.executeCommand('setContext', 'groupByFile', groupByFile);
 		vscode.commands.executeCommand('setContext', 'sortByFile', sortByFile);
-	}
-
-	async function revealElement(element: KoreElement) {
-		const doc = await vscode.workspace.openTextDocument(element.uri);
-		const editor = await vscode.window.showTextDocument(doc);
-
-		editor.revealRange(element.range, vscode.TextEditorRevealType.InCenter);
-		editor.selection = new vscode.Selection(element.range.start, element.range.start);
 	}
 
 	// One `kore-assistant.copy<Field>` command per copyable field: a context-menu entry can only pass the tree item,
@@ -92,16 +74,6 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 		})
 	);
 
-	// Datapack roots and file nodes have no click action (clicking toggles them), so the menu offers the jump instead.
-	async function openDeclaration(item: KoreTreeItem) {
-		if (item.element) {
-			await revealElement(item.element);
-		} else if (item.fileData) {
-			await vscode.window.showTextDocument(vscode.Uri.file(item.fileData.filePath));
-		}
-	}
-
-	// Debounce rescans so a full-document scan doesn't run on every keystroke
 	let rescanTimeout: ReturnType<typeof setTimeout> | undefined;
 
 	context.subscriptions.push(
@@ -114,9 +86,6 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 			if (vscode.window.activeTextEditor) {
 				updateDecorations(vscode.window.activeTextEditor);
 			}
-		}),
-		vscode.commands.registerCommand('kore-assistant.testExtension', () => {
-			vscode.window.showInformationMessage('Kore Assistant test command executed successfully!');
 		}),
 		vscode.commands.registerCommand('kore-assistant.toggleGrouping', toggleGroupingMode),
 		vscode.commands.registerCommand('kore-assistant.toggleGroupingByFile', toggleGroupingMode),
@@ -136,7 +105,6 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 			if (!editor || event.document !== editor.document) {
 				return;
 			}
-
 			clearTimeout(rescanTimeout);
 			rescanTimeout = setTimeout(() => updateDecorations(editor), RESCAN_DEBOUNCE_MS);
 		}),
@@ -157,36 +125,35 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 	return { koreElementManager };
 }
 
+function decorationTypeFor(element: ResolvedKoreElement): vscode.TextEditorDecorationType {
+	if (element.kindId === 'DATA_PACK') {
+		return datapackDecoration;
+	}
+	return isFunctionKind(kindById(element.kindId)!) ? functionDecoration : jsonDecoration;
+}
+
 function isKotlinFile(uri: vscode.Uri): boolean {
 	return uri.path.endsWith('.kt');
 }
 
-async function scanWorkspaceFiles() {
-	outputChannel.appendLine("Scanning workspace for Kotlin files...");
-	const files = await vscode.workspace.findFiles(KOTLIN_FILES_GLOB, KOTLIN_FILES_EXCLUDE);
-	outputChannel.appendLine(`Found ${files.length} Kotlin files`);
-	await scanFiles(files);
+/** Datapack roots and file nodes have no click action (clicking toggles them), so the menu offers the jump instead. */
+async function openDeclaration(item: KoreTreeItem) {
+	if (item.element) {
+		await revealElement(item.element);
+	} else if (item.fileData) {
+		await vscode.window.showTextDocument(vscode.Uri.file(item.fileData.filePath));
+	}
 }
 
-// Reads the files straight from disk instead of opening a TextDocument per file (which loads a full editor
-// model), in parallel, and commits the whole batch as one tree refresh.
-async function scanFiles(uris: readonly vscode.Uri[]) {
-	if (uris.length === 0) {
-		return;
-	}
-
-	const decoder = new TextDecoder();
-	const entries = await Promise.all(uris.map(async (uri): Promise<[vscode.Uri, KoreFile]> => {
-		try {
-			const bytes = await vscode.workspace.fs.readFile(uri);
-			return [uri, parseKoreFile(decoder.decode(bytes), uri)];
-		} catch (error) {
-			outputChannel.appendLine(`Error processing file ${uri.fsPath}: ${error}`);
-			return [uri, koreFileOf([])];
-		}
-	}));
-
-	koreElementManager.replaceElementsForUris(entries);
+/** Scans a file's text for Kore DSL declarations, without touching the shared element store. */
+function parseKoreFile(text: string, uri: vscode.Uri): KoreFile {
+	const positionAt = positionResolver(text);
+	const parsed = parseKotlinFile(text);
+	const declarations = parsed.declarations.map((decl): KoreElement => {
+		const builderLength = kindById(decl.kindId)!.builderName.length;
+		return { ...decl, range: new vscode.Range(positionAt(decl.offset), positionAt(decl.offset + builderLength)), uri };
+	});
+	return { ...parsed, declarations };
 }
 
 /** Offset -> Position without a TextDocument: binary search over the line start offsets of the text. */
@@ -211,39 +178,40 @@ function positionResolver(text: string): (offset: number) => vscode.Position {
 	};
 }
 
-// Scans a file's text for Kore DSL declarations, without touching the shared element store
-function parseKoreFile(text: string, uri: vscode.Uri): KoreFile {
-	const positionAt = positionResolver(text);
-	const parsed = parseKotlinFile(text);
-
-	const elements = parsed.declarations.flatMap((decl): KoreElement[] => {
-		const kind = kindById(decl.kindId);
-		if (!kind) {
-			return [];
-		}
-
-		const { offset, ...fields } = decl;
-		return [{
-			...fields,
-			range: new vscode.Range(positionAt(offset), positionAt(offset + kind.builderName.length)),
-			uri,
-		}];
-	});
-
-	return koreFileFrom(parsed, elements);
+async function revealElement(element: KoreElement) {
+	const doc = await vscode.workspace.openTextDocument(element.uri);
+	const editor = await vscode.window.showTextDocument(doc);
+	editor.revealRange(element.range, vscode.TextEditorRevealType.InCenter);
+	editor.selection = new vscode.Selection(element.range.start, element.range.start);
 }
 
-function decorationTypeFor(element: ResolvedKoreElement): vscode.TextEditorDecorationType | undefined {
-	const kind = kindById(element.kindId);
-	if (!kind) {
-		return undefined;
+/**
+ * Reads the files straight from disk instead of opening a TextDocument per file (which loads a full editor model),
+ * in parallel, and commits the whole batch as one tree refresh.
+ */
+async function scanFiles(uris: readonly vscode.Uri[]) {
+	if (uris.length === 0) {
+		return;
 	}
 
-	if (kind.id === 'DATA_PACK') {
-		return datapackDecoration;
-	}
+	const decoder = new TextDecoder();
+	const entries = await Promise.all(uris.map(async (uri): Promise<[vscode.Uri, KoreFile]> => {
+		try {
+			const bytes = await vscode.workspace.fs.readFile(uri);
+			return [uri, parseKoreFile(decoder.decode(bytes), uri)];
+		} catch (error) {
+			outputChannel.appendLine(`Error processing file ${uri.fsPath}: ${error}`);
+			return [uri, koreFileOf([])];
+		}
+	}));
 
-	return isFunctionKind(kind) ? functionDecoration : jsonDecoration;
+	koreElementManager.replaceElementsForUris(entries);
+}
+
+async function scanWorkspaceFiles() {
+	const files = await vscode.workspace.findFiles(KOTLIN_FILES_GLOB, KOTLIN_FILES_EXCLUDE);
+	outputChannel.appendLine(`Found ${files.length} Kotlin files`);
+	await scanFiles(files);
 }
 
 function updateDecorations(editor: vscode.TextEditor) {
@@ -261,19 +229,10 @@ function updateDecorations(editor: vscode.TextEditor) {
 	]);
 
 	for (const element of koreElementManager.getElementsForUri(document.uri)) {
-		const decorationType = decorationTypeFor(element);
-		if (decorationType) {
-			optionsByDecoration.get(decorationType)!.push({ range: element.range, hoverMessage: elementTooltip(element) });
-		}
+		optionsByDecoration.get(decorationTypeFor(element))!.push({ range: element.range, hoverMessage: elementTooltip(element) });
 	}
 
 	for (const [decorationType, options] of optionsByDecoration) {
 		editor.setDecorations(decorationType, options);
 	}
-
-	// The tree view refresh happens automatically via the onDidChangeElements event
-}
-
-export function deactivate() {
-	// Everything is disposed through context.subscriptions
 }

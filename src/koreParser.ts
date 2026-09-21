@@ -1,8 +1,9 @@
-// Pure text scanner turning Kotlin source into Kore DSL declarations. No `vscode` dependency, no PSI: a
-// single left-to-right pass tracking string/char/comment state (so braces inside `"{"` or `//` never confuse
-// brace matching) plus a stack of open `(` / `{` groups, generalizing the old 2-pattern regex scan to every
-// builder in koreDeclarations.ts. Mirrors KoreCallUtils.kt / KoreDeclarationData.kt from the IntelliJ plugin,
-// minus the semantic `analyze { }` confirmation - see docs/feature-parity-plan.md for what that drops.
+/**
+ * Pure text scanner turning Kotlin source into Kore DSL declarations, with no `vscode` dependency and no PSI: one
+ * left-to-right pass tracking string/char/comment state (so braces inside `"{"` or `//` never confuse brace
+ * matching) plus a stack of open `(` / `{` groups. Mirrors KoreCallUtils.kt / KoreDeclarationData.kt from the
+ * IntelliJ plugin, minus the semantic `analyze { }` confirmation, see docs/feature-parity-plan.md.
+ */
 
 import { isFunctionKind, kindByBuilderName, KORE_SCOPES, type KoreDeclarationKind, type KoreScope } from './koreDeclarations';
 
@@ -12,55 +13,84 @@ const NAME_PARAMETER_NAME = 'name';
 const FILE_NAME_PARAMETER_NAME = 'fileName';
 const NAMESPACE_PARAMETER_NAME = 'namespace';
 const DIRECTORY_PARAMETER_NAME = 'directory';
+const GROUP_PARAMETER_NAME = 'group';
 
-// `function(name, namespace, directory) { }` - the only family passing them positionally rather than in the block.
+/** `function(name, namespace, directory) { }`, the only family passing them positionally rather than in the block. */
 const NAMESPACE_PARAMETER_INDEX = 1;
 const DIRECTORY_PARAMETER_INDEX = 2;
 
+const CONTEXT_KEYWORD = 'context';
 const DATA_PACK_BUILDER_NAME = 'dataPack';
+const FUNCTION_BUILDER_NAME = 'function';
 const FUN_KEYWORD = 'fun';
+const VAL_KEYWORD = 'val';
 
 const NAMESPACE_STATEMENT_PATTERN = /^namespace\s*=(?!=)\s*([\s\S]+)$/;
 const NAMED_ARG_PATTERN = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*=(?!=)\s*([\s\S]*)$/;
-/** `fun DataPack.setup(` or `fun <T> DataPack.setup(`: the extension functions the call graph follows. */
-const DATA_PACK_EXTENSION_PATTERN = /^fun\s+(?:<[^>]*>\s*)?DataPack\.([A-Za-z_][A-Za-z0-9_]*)\s*\(/;
-/** `val NAME = "..."` / `const val NAME: String = "..."`: the constants a dynamic name or namespace can resolve to. */
-const STRING_CONSTANT_PATTERN = /^val\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*String)?\s*=\s*("(?:[^"\\\n]|\\.)*")/;
-const VAL_KEYWORD = 'val';
+/** `fun DataPack.setup(` or `fun <T> DataPack.setup(`: the receiver form of a datapack extension function. */
+const DATA_PACK_RECEIVER_PATTERN = /^fun\s+(?:<[^>]*>\s*)?(?:[A-Za-z_][A-Za-z0-9_.]*\.)?DataPack\.[A-Za-z_][A-Za-z0-9_]*\s*\(/;
+/** A `x: DataPack` value parameter, matched on the type's last segment like IntelliJ. */
+const DATA_PACK_PARAMETER_PATTERN = /:\s*(?:[A-Za-z_][A-Za-z0-9_.]*\.)?DataPack\b(?!\.)/;
+/** `context(dp: DataPack)` or the older `context(DataPack)` receiver form. */
+const DATA_PACK_CONTEXT_PATTERN = /(?:^|[,:])\s*(?:[A-Za-z_][A-Za-z0-9_.]*\.)?DataPack\b(?!\.)/;
+/** `val NAME = ` / `const val NAME: String = `, whatever the initializer, up to and including the `=`. */
+const VAL_DECLARATION_PATTERN = /^val\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[A-Za-z_][A-Za-z0-9_.]*\??)?\s*=(?!=)/;
+/** A bare or dot-qualified reference such as `NAME` or `Constants.NAMESPACE`. */
+const REFERENCE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/;
 /** How far past a `fun` / `val` keyword the declaration patterns look. */
 const DECLARATION_LOOKAHEAD = 240;
 
-export type KoreStringField = 'name' | 'namespace' | 'directory' | 'dataPackName';
+export type KoreStringField = 'dataPackName' | 'directory' | 'name' | 'namespace';
+
+export interface OffsetRange {
+	end: number;
+	start: number;
+}
+
+/** A string read from source: either a literal's value, or a snippet still holding references (`$X`, `NAME`). */
+export interface KoreStringValue {
+	isDynamic: boolean;
+	text: string;
+}
 
 export interface RawKoreDeclaration {
-	kindId: string;
-	name: string;
-	namespace?: string;
-	directory?: string;
+	/** The trailing lambda's body, `undefined` for a block-less scoped builder call. */
+	bodyRange?: OffsetRange;
 	dataPackName?: string;
+	directory?: string;
+	/** Which fields hold a source snippet instead of a literal, so the resolver knows what to try constants on. */
+	dynamicFields: KoreStringField[];
 	/** The `fun DataPack.xxx()` body the call sits in when no `dataPack { }` block encloses it, for the call graph. */
 	enclosingFunction?: string;
 	/** At least one of name/namespace/directory/dataPackName could not be read as a plain string literal. */
 	isDynamic: boolean;
-	/** Which fields hold a source snippet instead of a literal, so the resolver knows what to try constants on. */
-	dynamicFields: KoreStringField[];
+	kindId: string;
+	name: string;
+	/** The name argument's expression text, for diagnostics. */
+	nameArgRange: OffsetRange;
+	namespace?: string;
+	/** Offset of the builder identifier. */
 	offset: number;
 }
 
-export interface OffsetRange {
-	start: number;
-	end: number;
-}
-
-/** A `fun DataPack.name() { }` declaration, spanning its body. */
+/** A `fun DataPack.name() { }` (or `fun name(dp: DataPack)`, `context(dp: DataPack) fun name()`) declaration, spanning its body. */
 export interface DataPackExtensionFunction extends OffsetRange {
 	name: string;
 }
 
 /** A `dataPack(name) { }` block, spanning its body. `isDynamic` when the name isn't a literal. */
 export interface DataPackBlock extends OffsetRange {
-	name: string;
 	isDynamic: boolean;
+	name: string;
+}
+
+/** A `val NAME = <expr>` binding whose initializer is a string literal, a reference, or a concatenation of those. */
+export interface KotlinConstant extends KoreStringValue {
+	name: string;
+	/** Offset of the `val` keyword, so a reference picks the closest binding declared before it. */
+	offset: number;
+	/** Offset of the `}` closing the block declaring it, `undefined` at file level, so a local stops shadowing past it. */
+	scopeEnd?: number;
 }
 
 /** A plain `name(...)` / `name { }` call that isn't a Kore builder: a candidate extension-function call. */
@@ -69,74 +99,95 @@ export interface KotlinCall {
 	offset: number;
 }
 
-/** Everything the workspace resolver needs from one Kotlin file. */
-export interface ParsedKotlinFile {
-	declarations: RawKoreDeclaration[];
-	/** `val X = "literal"` bindings, last one wins on a duplicate name within the file. */
-	constants: Map<string, string>;
-	extensionFunctions: DataPackExtensionFunction[];
-	/** Every `fun` name declared in the file, whatever its receiver: a call to one of them never leaves the file. */
-	declaredFunctions: Set<string>;
-	dataPackBlocks: DataPackBlock[];
-	calls: KotlinCall[];
+/**
+ * A `function("x")` command call (no trailing lambda) inside a function-family declaration body. Kore's command
+ * overloads are `function(name, group = false)` and `function(namespace, name, group = false)`, namespace FIRST,
+ * the reverse of the declaration's `function(name, namespace, directory)`.
+ */
+export interface RawFunctionCommand {
+	/** The whole argument list, between the parentheses. */
+	argsRange: OffsetRange;
+	/** Offset of the enclosing function-family declaration's builder identifier. */
+	enclosingDeclarationOffset: number;
+	/** `true` only when the group argument is literally `true`. */
+	group: boolean;
+	isDynamic: boolean;
+	name: string;
+	nameArgRange: OffsetRange;
+	namespace?: string;
+	namespaceArgRange?: OffsetRange;
+	/** The call passes two positional strings, so the first one is the namespace. */
+	namespaceFirst: boolean;
+	offset: number;
 }
 
-interface KoreStringValue {
+/** Everything the workspace resolver and the inspections need from one Kotlin file. */
+export interface ParsedKotlinFile {
+	calls: KotlinCall[];
+	/** In source order; a reference resolves to the closest binding declared before it. */
+	constants: KotlinConstant[];
+	dataPackBlocks: DataPackBlock[];
+	/** Every `fun` name declared in the file, whatever its receiver: a call to one of them never leaves the file. */
+	declaredFunctions: Set<string>;
+	declarations: RawKoreDeclaration[];
+	extensionFunctions: DataPackExtensionFunction[];
+	functionCommands: RawFunctionCommand[];
+}
+
+interface RawArg {
+	start: number;
 	text: string;
-	isDynamic: boolean;
 }
 
 interface ParsedArgs {
-	positional: string[];
-	named: Map<string, string>;
+	named: Map<string, RawArg>;
+	positional: RawArg[];
 }
 
 const SCOPES_BY_BUILDER_NAME = new Map(KORE_SCOPES.map(scope => [scope.builderName, scope]));
 const SCOPES_BY_RECEIVER_NAME = new Map(KORE_SCOPES.map(scope => [scope.receiverName, scope]));
 
 type ParenFrame = {
-	kind: 'paren';
+	argStart: number;
 	calleeName?: string;
+	/** Set on the parameter list of a `fun <name>(` declaration, with whether it takes the datapack as receiver/context. */
+	declaresFunction?: { isDataPackExtension: boolean; name: string };
+	identStart: number;
+	kind: 'paren';
 	/** The identifier before `.callee(`, e.g. `recipesBuilder` in `dp.recipesBuilder.smelting("x")`. */
 	receiverName?: string;
-	argStart: number;
-	identStart: number;
-	/** Set on the parameter list of a `fun DataPack.<name>(` declaration, so its body can be tracked. */
-	declaresExtension?: string;
 };
 
 type BraceFrame = {
-	kind: 'brace';
-	calleeName?: string;
-	declarationKind?: KoreDeclarationKind;
 	args?: ParsedArgs;
 	bodyStart: number;
+	calleeName?: string;
 	callOffset: number;
 	dataPackName?: KoreStringValue;
-	/** The body of a `fun DataPack.<name>() { }`. */
+	declarationKind?: KoreDeclarationKind;
+	/** The body of a datapack extension function. */
 	extensionFunction?: string;
+	kind: 'brace';
 };
 
-type GroupFrame = ParenFrame | BraceFrame;
+type GroupFrame = BraceFrame | ParenFrame;
 
 /** Scans Kotlin source text for every Kore DSL builder call in koreDeclarations.ts, syntactically only. */
-export function parseKoreDeclarations(text: string): RawKoreDeclaration[] {
-	return parseKotlinFile(text).declarations;
-}
-
-/** [parseKoreDeclarations] plus the constants, `DataPack.` extension functions, `dataPack { }` blocks and calls. */
 export function parseKotlinFile(text: string): ParsedKotlinFile {
-	const results: RawKoreDeclaration[] = [];
-	const constants = new Map<string, string>();
-	const extensionFunctions: DataPackExtensionFunction[] = [];
-	const declaredFunctions = new Set<string>();
-	const dataPackBlocks: DataPackBlock[] = [];
-	const calls: KotlinCall[] = [];
+	const parsed: ParsedKotlinFile = {
+		calls: [],
+		constants: [],
+		dataPackBlocks: [],
+		declaredFunctions: new Set(),
+		declarations: [],
+		extensionFunctions: [],
+		functionCommands: [],
+	};
 	const stack: GroupFrame[] = [];
 	const len = text.length;
 	let i = 0;
 	let declaringFunction = false;
-	let pendingExtension: string | undefined;
+	let pendingDataPackExtension = false;
 
 	while (i < len) {
 		const c = text[i];
@@ -177,15 +228,18 @@ export function parseKotlinFile(text: string): ParsedKotlinFile {
 
 			if (ident === FUN_KEYWORD) {
 				declaringFunction = true;
-				pendingExtension = DATA_PACK_EXTENSION_PATTERN.exec(text.slice(identStart, identStart + DECLARATION_LOOKAHEAD))?.[1];
+				pendingDataPackExtension ||= DATA_PACK_RECEIVER_PATTERN.test(text.slice(identStart, identStart + DECLARATION_LOOKAHEAD));
 				continue;
 			}
 
 			if (ident === VAL_KEYWORD) {
-				const m = STRING_CONSTANT_PATTERN.exec(text.slice(identStart, identStart + DECLARATION_LOOKAHEAD));
-				const value = m ? evaluateStringLiteral(m[2]) : undefined;
-				if (m && value && !value.isDynamic) {
-					constants.set(m[1], value.text);
+				const m = VAL_DECLARATION_PATTERN.exec(text.slice(identStart, identStart + DECLARATION_LOOKAHEAD));
+				if (m) {
+					const initializerStart = identStart + m[0].length;
+					const value = evaluateStringExpression(text.slice(initializerStart, initializerEnd(text, initializerStart)));
+					if (value) {
+						parsed.constants.push({ name: m[1], offset: identStart, ...value });
+					}
 				}
 				continue;
 			}
@@ -193,20 +247,19 @@ export function parseKotlinFile(text: string): ParsedKotlinFile {
 			const k = skipWhitespaceAndComments(text, i);
 			if (text[k] === '(') {
 				// `fun DataPack.tick(name: String) {` declares a builder, it does not call one: keep the callee anonymous.
-				const calleeName = declaringFunction ? undefined : ident;
-				const declaresExtension = declaringFunction ? pendingExtension : undefined;
-				if (declaringFunction) {
-					declaredFunctions.add(ident);
+				const declaresFunction = declaringFunction ? { isDataPackExtension: pendingDataPackExtension, name: ident } : undefined;
+				if (declaresFunction) {
+					parsed.declaredFunctions.add(ident);
+					pendingDataPackExtension = false;
 				}
 				declaringFunction = false;
-				pendingExtension = undefined;
-				stack.push({ kind: 'paren', calleeName, declaresExtension, receiverName: receiverBefore(text, identStart), argStart: k + 1, identStart });
+				stack.push({ kind: 'paren', calleeName: declaresFunction ? undefined : ident, declaresFunction, receiverName: receiverBefore(text, identStart), argStart: k + 1, identStart });
 				i = k + 1;
 			} else if (text[k] === '{') {
-				// `recipes { }` - a lambda-only call, kept on the stack so scoped builders inside can see their scope.
+				// `recipes { }`, a lambda-only call, kept on the stack so scoped builders inside can see their scope.
 				stack.push({ kind: 'brace', calleeName: ident, bodyStart: k + 1, callOffset: identStart });
 				if (isCandidateCall(ident)) {
-					calls.push({ name: ident, offset: identStart });
+					parsed.calls.push({ name: ident, offset: identStart });
 				}
 				i = k + 1;
 			}
@@ -221,54 +274,67 @@ export function parseKotlinFile(text: string): ParsedKotlinFile {
 
 		if (c === ')') {
 			const frame = stack.pop();
-			const argsText = frame?.kind === 'paren' ? text.slice(frame.argStart, i) : undefined;
+			const argsEnd = i;
 			i++;
+			if (frame?.kind !== 'paren') {
+				continue;
+			}
+			const argsText = text.slice(frame.argStart, argsEnd);
 
-			if (frame?.kind === 'paren' && frame.declaresExtension) {
+			if (frame.declaresFunction) {
 				// Past the parameter list: an optional `: ReturnType`, then the body. `= expr` bodies declare nothing.
 				const k = skipReturnType(text, skipWhitespaceAndComments(text, i));
+				const extensionFunction = frame.declaresFunction.isDataPackExtension || DATA_PACK_PARAMETER_PATTERN.test(argsText) ? frame.declaresFunction.name : undefined;
 				if (text[k] === '{') {
-					stack.push({ kind: 'brace', bodyStart: k + 1, callOffset: frame.identStart, extensionFunction: frame.declaresExtension });
+					stack.push({ kind: 'brace', bodyStart: k + 1, callOffset: frame.identStart, extensionFunction });
 					i = k + 1;
 				}
 				continue;
 			}
 
-			if (frame?.kind === 'paren' && frame.calleeName) {
-				const k = skipWhitespaceAndComments(text, i);
-				const declarationKind = kindByBuilderName(frame.calleeName, activeScopes(stack, frame.receiverName));
-				const hasBlock = text[k] === '{';
+			// `context(dp: DataPack) fun setup()`: a context parameter makes the next function a datapack extension.
+			if (frame.calleeName === CONTEXT_KEYWORD && !frame.receiverName) {
+				pendingDataPackExtension = DATA_PACK_CONTEXT_PATTERN.test(argsText);
+				continue;
+			}
 
-				if (isCandidateCall(frame.calleeName)) {
-					calls.push({ name: frame.calleeName, offset: frame.identStart });
+			if (!frame.calleeName) {
+				continue;
+			}
+
+			const k = skipWhitespaceAndComments(text, i);
+			const declarationKind = kindByBuilderName(frame.calleeName, activeScopes(stack, frame.receiverName));
+			const hasBlock = text[k] === '{';
+
+			if (isCandidateCall(frame.calleeName)) {
+				parsed.calls.push({ name: frame.calleeName, offset: frame.identStart });
+			}
+
+			if (hasBlock) {
+				const args = parseArgs(argsText, frame.argStart);
+				const braceFrame: BraceFrame = { kind: 'brace', calleeName: frame.calleeName, declarationKind, args, bodyStart: k + 1, callOffset: frame.identStart };
+				if (frame.calleeName === DATA_PACK_BUILDER_NAME) {
+					const nameArg = declarationNameArgument(args);
+					braceFrame.dataPackName = nameArg && koreStringValueOf(nameArg.text);
 				}
+				stack.push(braceFrame);
+				i = k + 1;
+				continue;
+			}
 
-				if (!hasBlock && declarationKind?.scope) {
-					// Scoped builders default their lambda (`single("x", Enchantments.PIERCING)`), the scope is proof enough.
-					const decl = buildDeclaration(frame.identStart, declarationKind, parseArgs(argsText ?? ''), '', stack);
-					if (decl) {
-						results.push(decl);
-					}
+			if (declarationKind?.scope) {
+				// Scoped builders default their lambda (`single("x", Enchantments.PIERCING)`), the scope is proof enough.
+				const decl = buildDeclaration(frame.identStart, declarationKind, parseArgs(argsText, frame.argStart), '', stack);
+				if (decl) {
+					parsed.declarations.push(decl);
 				}
-
-				if (hasBlock) {
-					const args = parseArgs(argsText ?? '');
-					const braceFrame: BraceFrame = {
-						kind: 'brace',
-						calleeName: frame.calleeName,
-						declarationKind,
-						args,
-						bodyStart: k + 1,
-						callOffset: frame.identStart,
-					};
-
-					if (frame.calleeName === DATA_PACK_BUILDER_NAME) {
-						const nameArg = declarationNameArgument(args);
-						braceFrame.dataPackName = nameArg !== undefined ? koreStringValueOf(nameArg) : undefined;
+			} else if (frame.calleeName === FUNCTION_BUILDER_NAME && !frame.receiverName) {
+				const enclosing = nearestDeclarationFrame(stack);
+				if (enclosing?.declarationKind && isFunctionKind(enclosing.declarationKind)) {
+					const command = functionCommandOf(parseArgs(argsText, frame.argStart), frame.identStart, { start: frame.argStart, end: argsEnd }, enclosing.callOffset);
+					if (command) {
+						parsed.functionCommands.push(command);
 					}
-
-					stack.push(braceFrame);
-					i = k + 1;
 				}
 			}
 			continue;
@@ -282,20 +348,27 @@ export function parseKotlinFile(text: string): ParsedKotlinFile {
 
 		if (c === '}') {
 			const frame = stack.pop();
-			const bodyText = frame?.kind === 'brace' ? text.slice(frame.bodyStart, i) : undefined;
+			const bodyEnd = i;
 			i++;
+			if (frame?.kind !== 'brace') {
+				continue;
+			}
+			const bodyRange = { start: frame.bodyStart, end: bodyEnd };
 
-			if (frame?.kind === 'brace' && frame.declarationKind && frame.args && bodyText !== undefined) {
-				const decl = buildDeclaration(frame.callOffset, frame.declarationKind, frame.args, bodyText, stack);
+			for (let idx = parsed.constants.length - 1; idx >= 0 && parsed.constants[idx].offset > frame.bodyStart; idx--) {
+				parsed.constants[idx].scopeEnd ??= bodyEnd;
+			}
+			if (frame.declarationKind && frame.args) {
+				const decl = buildDeclaration(frame.callOffset, frame.declarationKind, frame.args, text.slice(bodyRange.start, bodyRange.end), stack, bodyRange);
 				if (decl) {
-					results.push(decl);
+					parsed.declarations.push(decl);
 				}
 			}
-			if (frame?.kind === 'brace' && frame.extensionFunction) {
-				extensionFunctions.push({ name: frame.extensionFunction, start: frame.bodyStart, end: i - 1 });
+			if (frame.extensionFunction) {
+				parsed.extensionFunctions.push({ name: frame.extensionFunction, ...bodyRange });
 			}
-			if (frame?.kind === 'brace' && frame.calleeName === DATA_PACK_BUILDER_NAME && frame.dataPackName) {
-				dataPackBlocks.push({ name: frame.dataPackName.text, isDynamic: frame.dataPackName.isDynamic, start: frame.bodyStart, end: i - 1 });
+			if (frame.calleeName === DATA_PACK_BUILDER_NAME && frame.dataPackName) {
+				parsed.dataPackBlocks.push({ name: frame.dataPackName.text, isDynamic: frame.dataPackName.isDynamic, ...bodyRange });
 			}
 			continue;
 		}
@@ -303,7 +376,20 @@ export function parseKotlinFile(text: string): ParsedKotlinFile {
 		i++;
 	}
 
-	return { declarations: results, constants, extensionFunctions, declaredFunctions, dataPackBlocks, calls };
+	return parsed;
+}
+
+/** Where a `val` initializer ends: the first `;` or newline at depth 0, unless the line ends with a `+` continuation. */
+function initializerEnd(text: string, start: number): number {
+	return scanTopLevel(text, start, (c, i) => c === ';' || (c === '\n' && text[lastNonWhitespaceBefore(text, i)] !== '+'));
+}
+
+function lastNonWhitespaceBefore(text: string, i: number): number {
+	let j = i - 1;
+	while (j >= 0 && isWhitespace(text[j])) {
+		j--;
+	}
+	return j;
 }
 
 /** Skips a `: ReturnType` (generics, nullable, qualified names included) after a parameter list. */
@@ -332,7 +418,7 @@ function isCandidateCall(name: string): boolean {
 	return name[0] >= 'a' && name[0] <= 'z' && name !== DATA_PACK_BUILDER_NAME && kindByBuilderName(name) === undefined;
 }
 
-function declarationNameArgument(args: ParsedArgs): string | undefined {
+function declarationNameArgument(args: ParsedArgs): RawArg | undefined {
 	return args.named.get(NAME_PARAMETER_NAME) ?? args.named.get(FILE_NAME_PARAMETER_NAME) ?? args.positional[0];
 }
 
@@ -368,27 +454,32 @@ function receiverBefore(text: string, identStart: number): string | undefined {
 	return start < end ? text.slice(start, end) : undefined;
 }
 
+function rangeOf(arg: RawArg): OffsetRange {
+	return { start: arg.start, end: arg.start + arg.text.length };
+}
+
 function buildDeclaration(
 	callOffset: number,
 	kind: KoreDeclarationKind,
 	args: ParsedArgs,
 	bodyText: string,
 	ancestors: GroupFrame[],
+	bodyRange?: OffsetRange,
 ): RawKoreDeclaration | undefined {
 	const nameArg = declarationNameArgument(args);
 	if (nameArg === undefined) {
 		return undefined;
 	}
-	const nameValue = koreStringValueOf(nameArg);
+	const nameValue = koreStringValueOf(nameArg.text);
 
 	const namespaceArg = args.named.get(NAMESPACE_PARAMETER_NAME)
 		?? (isFunctionKind(kind) ? args.positional[NAMESPACE_PARAMETER_INDEX] : undefined);
-	const namespaceValue = namespaceArg !== undefined ? koreStringValueOf(namespaceArg) : namespaceAssignmentInBody(bodyText);
+	const namespaceValue = namespaceArg ? koreStringValueOf(namespaceArg.text) : namespaceAssignmentInBody(bodyText);
 
 	let directoryValue: KoreStringValue | undefined;
 	if (isFunctionKind(kind)) {
 		const directoryArg = args.named.get(DIRECTORY_PARAMETER_NAME) ?? args.positional[DIRECTORY_PARAMETER_INDEX];
-		directoryValue = directoryArg !== undefined ? koreStringValueOf(directoryArg) : undefined;
+		directoryValue = directoryArg && koreStringValueOf(directoryArg.text);
 	}
 
 	const dataPackValue = kind.id === 'DATA_PACK' ? nameValue : nearestEnclosingDataPackName(ancestors);
@@ -400,16 +491,60 @@ function buildDeclaration(
 	const dynamicFields = fields.filter(([, value]) => value?.isDynamic).map(([field]) => field);
 
 	return {
-		kindId: kind.id,
-		name: nameValue.text,
-		namespace: namespaceValue?.text,
-		directory: directoryValue?.text,
+		bodyRange,
 		dataPackName: dataPackValue?.text,
+		directory: directoryValue?.text,
+		dynamicFields,
 		enclosingFunction,
 		isDynamic: dynamicFields.length > 0,
-		dynamicFields,
+		kindId: kind.id,
+		name: nameValue.text,
+		nameArgRange: rangeOf(nameArg),
+		namespace: namespaceValue?.text,
 		offset: callOffset,
 	};
+}
+
+/** Guesses the command overload from the argument shapes: two positional strings mean namespace first. */
+function functionCommandOf(args: ParsedArgs, offset: number, argsRange: OffsetRange, enclosingDeclarationOffset: number): RawFunctionCommand | undefined {
+	const { named, positional } = args;
+	const namespaceFirst = !named.has(NAME_PARAMETER_NAME) && !named.has(NAMESPACE_PARAMETER_NAME)
+		&& positional.length >= 2 && !isBooleanLiteral(positional[1].text);
+	const nameArg = named.get(NAME_PARAMETER_NAME) ?? positional[namespaceFirst ? 1 : 0];
+	if (nameArg === undefined) {
+		return undefined;
+	}
+	const namespaceArg = named.get(NAMESPACE_PARAMETER_NAME) ?? (namespaceFirst ? positional[0] : undefined);
+	const groupArg = named.get(GROUP_PARAMETER_NAME) ?? positional[namespaceFirst ? 2 : 1];
+	const name = koreStringValueOf(nameArg.text);
+	const namespace = namespaceArg && koreStringValueOf(namespaceArg.text);
+
+	return {
+		argsRange,
+		enclosingDeclarationOffset,
+		group: groupArg?.text === 'true',
+		isDynamic: name.isDynamic || namespace?.isDynamic === true,
+		name: name.text,
+		nameArgRange: rangeOf(nameArg),
+		namespace: namespace?.text,
+		namespaceArgRange: namespaceArg && rangeOf(namespaceArg),
+		namespaceFirst,
+		offset,
+	};
+}
+
+function isBooleanLiteral(text: string): boolean {
+	return text === 'true' || text === 'false';
+}
+
+function nearestDeclarationFrame(ancestors: GroupFrame[]): BraceFrame | undefined {
+	for (let idx = ancestors.length - 1; idx >= 0; idx--) {
+		const ancestor = ancestors[idx];
+		if (ancestor.kind === 'brace' && ancestor.declarationKind) {
+			return ancestor;
+		}
+	}
+	return undefined;
 }
 
 function nearestEnclosingDataPackName(ancestors: GroupFrame[]): KoreStringValue | undefined {
@@ -433,97 +568,71 @@ function nearestEnclosingExtensionFunction(ancestors: GroupFrame[]): string | un
 }
 
 /**
- * `namespace = "..."` assigned at the top level of a block's body (depth 0, not inside a nested block/call) -
- * how every generator outside the function family sets its namespace. Takes the last match, same as the
- * reference plugin's `namespaceAssignmentInBlock`.
+ * `namespace = "..."` assigned at the top level of a block's body (depth 0, not inside a nested block/call), how
+ * every generator outside the function family sets its namespace. The last one wins, like `namespaceAssignmentInBlock`.
  */
 function namespaceAssignmentInBody(bodyText: string): KoreStringValue | undefined {
-	let depth = 0;
-	let stmtStart = 0;
 	let lastMatch: KoreStringValue | undefined;
-	const len = bodyText.length;
-	let i = 0;
-
-	const checkStatement = (raw: string) => {
-		const m = NAMESPACE_STATEMENT_PATTERN.exec(raw.trim());
+	for (const statement of splitTopLevel(bodyText, c => c === '\n' || c === ';')) {
+		const m = NAMESPACE_STATEMENT_PATTERN.exec(statement.text);
 		if (m) {
 			lastMatch = koreStringValueOf(m[1].trim());
 		}
-	};
-
-	while (i < len) {
-		const c = bodyText[i];
-
-		if (c === '"') {
-			i = skipStringLiteral(bodyText, i);
-			continue;
-		}
-		if (c === "'") {
-			i = skipCharLiteral(bodyText, i);
-			continue;
-		}
-		if (c === '/' && bodyText[i + 1] === '/') {
-			i = skipToLineEnd(bodyText, i);
-			continue;
-		}
-		if (c === '/' && bodyText[i + 1] === '*') {
-			i = skipBlockComment(bodyText, i);
-			continue;
-		}
-		if (c === '(' || c === '[' || c === '{') {
-			depth++;
-			i++;
-			continue;
-		}
-		if (c === ')' || c === ']' || c === '}') {
-			depth--;
-			i++;
-			continue;
-		}
-		if (depth === 0 && (c === '\n' || c === ';')) {
-			checkStatement(bodyText.slice(stmtStart, i));
-			i++;
-			stmtStart = i;
-			continue;
-		}
-		i++;
 	}
-	checkStatement(bodyText.slice(stmtStart));
-
 	return lastMatch;
 }
 
-/** Splits a call's raw argument-list text into positional args and `name = value` named args. */
-function parseArgs(argsText: string): ParsedArgs {
-	const positional: string[] = [];
-	const named = new Map<string, string>();
-	for (const part of splitTopLevelArgs(argsText)) {
-		if (part.startsWith('{')) {
-			// A lambda passed inline (not as the trailing block) - never a name/namespace/directory value.
+/** Splits a call's raw argument-list text into positional args and `name = value` named args, with absolute offsets. */
+function parseArgs(argsText: string, argsStart: number): ParsedArgs {
+	const positional: RawArg[] = [];
+	const named = new Map<string, RawArg>();
+	for (const part of splitTopLevel(argsText, c => c === ',')) {
+		// A lambda passed inline (not as the trailing block) is never a name/namespace/directory value.
+		if (part.text.startsWith('{')) {
 			continue;
 		}
-
-		const m = NAMED_ARG_PATTERN.exec(part);
+		const m = NAMED_ARG_PATTERN.exec(part.text);
 		if (m) {
-			named.set(m[1], m[2].trim());
+			named.set(m[1], { text: m[2], start: argsStart + part.start + part.text.length - m[2].length });
 		} else {
-			positional.push(part);
+			positional.push({ text: part.text, start: argsStart + part.start });
 		}
 	}
-
 	return { positional, named };
 }
 
-function splitTopLevelArgs(text: string): string[] {
-	const parts: string[] = [];
-	let depth = 0;
+/** Splits `text` on separator characters found outside strings, comments and nested brackets, trimming each part. */
+function splitTopLevel(text: string, isSeparator: (c: string) => boolean): RawArg[] {
+	const parts: RawArg[] = [];
 	let start = 0;
-	let i = 0;
-	const len = text.length;
+	while (start <= text.length) {
+		const end = scanTopLevel(text, start, isSeparator);
+		let s = start;
+		while (s < end && isWhitespace(text[s])) {
+			s++;
+		}
+		let e = end;
+		while (e > s && isWhitespace(text[e - 1])) {
+			e--;
+		}
+		if (s < e) {
+			parts.push({ text: text.slice(s, e), start: s });
+		}
+		start = end + 1;
+	}
+	return parts;
+}
 
+/**
+ * Walks `text` from `start` skipping strings, chars, comments and bracketed groups, and returns the index of the first
+ * depth-0 character `stop` accepts, or of an unbalanced closing bracket, or `text.length`.
+ */
+function scanTopLevel(text: string, start: number, stop: (c: string, i: number) => boolean): number {
+	let depth = 0;
+	let i = start;
+	const len = text.length;
 	while (i < len) {
 		const c = text[i];
-
 		if (c === '"') {
 			i = skipStringLiteral(text, i);
 			continue;
@@ -542,42 +651,67 @@ function splitTopLevelArgs(text: string): string[] {
 		}
 		if (c === '(' || c === '[' || c === '{') {
 			depth++;
-			i++;
-			continue;
-		}
-		if (c === ')' || c === ']' || c === '}') {
+		} else if (c === ')' || c === ']' || c === '}') {
+			if (depth === 0) {
+				return i;
+			}
 			depth--;
-			i++;
-			continue;
-		}
-		if (c === ',' && depth === 0) {
-			parts.push(text.slice(start, i));
-			i++;
-			start = i;
-			continue;
+		} else if (depth === 0 && stop(c, i)) {
+			return i;
 		}
 		i++;
 	}
-
-	const last = text.slice(start);
-	if (last.trim() !== '' || parts.length > 0) {
-		parts.push(last);
-	}
-
-	return parts.map(p => p.trim()).filter(p => p !== '');
+	return len;
 }
 
 /**
- * Reads a raw argument's text as a string, following Kotlin string-template escapes/interpolation. Falls back
- * to a clipped, whitespace-collapsed source snippet (marked dynamic) for anything that isn't a bare literal -
- * a call, a constant reference, string concatenation - same fallback the reference plugin uses.
+ * Reads a raw argument's text as a string: a literal (following Kotlin escapes and templates), a reference, or a
+ * `+` concatenation of those. Falls back to a clipped, whitespace-collapsed source snippet (marked dynamic) for
+ * anything else, same fallback the reference plugin uses.
  */
 function koreStringValueOf(raw: string): KoreStringValue {
-	return evaluateStringLiteral(raw) ?? placeholder(raw);
+	return evaluateStringExpression(raw) ?? placeholder(raw);
 }
 
 function placeholder(raw: string): KoreStringValue {
 	return { text: raw.replace(/\s+/g, ' ').trim().slice(0, MAX_PLACEHOLDER_LENGTH), isDynamic: true };
+}
+
+/**
+ * A string literal, a bare/dot-qualified reference (kept as its spelling, dynamic), or a `+` concatenation whose
+ * non-literal sides become `${...}` template entries so the resolver treats the whole thing as one template.
+ */
+function evaluateStringExpression(raw: string): KoreStringValue | undefined {
+	if (!raw.includes('+')) {
+		const trimmed = raw.trim();
+		return trimmed === '' ? undefined : evaluateStringLiteral(trimmed) ?? evaluateReference(trimmed);
+	}
+	const parts = splitTopLevel(raw, c => c === '+');
+	if (parts.length === 0) {
+		return undefined;
+	}
+	if (parts.length === 1) {
+		return evaluateStringLiteral(parts[0].text) ?? evaluateReference(parts[0].text);
+	}
+
+	let text = '';
+	let dynamic = false;
+	for (const part of parts) {
+		const value = evaluateStringLiteral(part.text) ?? { text: `\${${placeholder(part.text).text}}`, isDynamic: true };
+		text += value.text;
+		dynamic ||= value.isDynamic;
+	}
+	return { text, isDynamic: dynamic };
+}
+
+/** Whether only whitespace and comments follow the token ending at `end`, so `text` is that single token. */
+function tokenEnd(text: string, end: number): boolean {
+	return skipWhitespaceAndComments(text, end) === text.length;
+}
+
+function evaluateReference(text: string): KoreStringValue | undefined {
+	const m = REFERENCE_PATTERN.exec(text);
+	return m && tokenEnd(text, m[0].length) ? { text: m[0], isDynamic: true } : undefined;
 }
 
 function evaluateStringLiteral(raw: string): KoreStringValue | undefined {
@@ -585,15 +719,14 @@ function evaluateStringLiteral(raw: string): KoreStringValue | undefined {
 	if (!trimmed.startsWith('"')) {
 		return undefined;
 	}
-
-	// Not a bare literal (string concatenation, trailing content, ...) - caller falls back to a placeholder.
-	if (skipStringLiteral(trimmed, 0) !== trimmed.length) {
+	const literalEnd = skipStringLiteral(trimmed, 0);
+	if (!tokenEnd(trimmed, literalEnd)) {
 		return undefined;
 	}
 
 	const triple = trimmed.startsWith('"""');
 	const quoteLen = triple ? 3 : 1;
-	const content = trimmed.slice(quoteLen, trimmed.length - quoteLen);
+	const content = trimmed.slice(quoteLen, literalEnd - quoteLen);
 
 	let output = '';
 	let dynamic = false;
@@ -636,11 +769,10 @@ function evaluateStringLiteral(raw: string): KoreStringValue | undefined {
 
 const SIMPLE_ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', '\\': '\\', '"': '"', "'": "'", $: '$' };
 
-function unescapeChar(content: string, i: number): { text: string; length: number } {
+function unescapeChar(content: string, i: number): { length: number; text: string } {
 	const c = content[i + 1];
 	if (c === 'u') {
-		const hex = content.slice(i + 2, i + 6);
-		const code = parseInt(hex, 16);
+		const code = parseInt(content.slice(i + 2, i + 6), 16);
 		return { text: Number.isNaN(code) ? '' : String.fromCharCode(code), length: 6 };
 	}
 	if (c !== undefined && c in SIMPLE_ESCAPES) {
@@ -674,7 +806,7 @@ function skipInterpolationBraces(text: string, openBraceIndex: number): number {
 }
 
 function skipStringLiteral(text: string, i: number): number {
-	const triple = text.slice(i, i + 3) === '"""';
+	const triple = text.startsWith('"""', i);
 	let j = i + (triple ? 3 : 1);
 	const len = text.length;
 
@@ -682,7 +814,7 @@ function skipStringLiteral(text: string, i: number): number {
 		const c = text[j];
 
 		if (triple) {
-			if (c === '"' && text[j + 1] === '"' && text[j + 2] === '"') {
+			if (c === '"' && text.startsWith('""', j + 1)) {
 				return j + 3;
 			}
 		} else {
@@ -694,7 +826,8 @@ function skipStringLiteral(text: string, i: number): number {
 				return j + 1;
 			}
 			if (c === '\n') {
-				return j; // unterminated single-line string, bail out safely
+				// Unterminated single-line string: bail out at the line end rather than swallowing the file.
+				return j;
 			}
 		}
 
@@ -719,44 +852,32 @@ function skipCharLiteral(text: string, i: number): number {
 }
 
 function skipToLineEnd(text: string, i: number): number {
-	let j = i;
-	while (j < text.length && text[j] !== '\n') {
-		j++;
-	}
-	return j;
+	const end = text.indexOf('\n', i);
+	return end === -1 ? text.length : end;
 }
 
 function skipBlockComment(text: string, i: number): number {
-	let j = i + 2;
-	while (j < text.length && !(text[j] === '*' && text[j + 1] === '/')) {
-		j++;
-	}
-	return Math.min(j + 2, text.length);
+	const end = text.indexOf('*/', i + 2);
+	return end === -1 ? text.length : end + 2;
 }
 
 function skipWhitespaceAndComments(text: string, i: number): number {
 	let j = i;
-	for (;;) {
-		if (j >= text.length) {
-			return j;
-		}
+	while (j < text.length) {
 		if (isWhitespace(text[j])) {
 			j++;
-			continue;
-		}
-		if (text[j] === '/' && text[j + 1] === '/') {
+		} else if (text[j] === '/' && text[j + 1] === '/') {
 			j = skipToLineEnd(text, j);
-			continue;
-		}
-		if (text[j] === '/' && text[j + 1] === '*') {
+		} else if (text[j] === '/' && text[j + 1] === '*') {
 			j = skipBlockComment(text, j);
-			continue;
+		} else {
+			break;
 		}
-		return j;
 	}
+	return j;
 }
 
-// Char-code tests rather than one-char regexes: these run once per character of every scanned file.
+/** Char-code tests rather than one-char regexes: these run once per character of every scanned file. */
 function isWhitespace(c: string): boolean {
 	return c <= ' ' || (c > '\x7f' && /\s/.test(c));
 }
