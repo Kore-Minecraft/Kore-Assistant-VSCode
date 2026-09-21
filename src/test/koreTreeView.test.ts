@@ -376,9 +376,10 @@ suite('KoreTreeDataProvider', () => {
 			assert.strictEqual(item.command?.arguments?.[0], item.element);
 			assert.strictEqual(tooltipOf(item), [
 				'**Function** `p:sub/dir/main`',
-				'$(package) `p` › `data/p/function/sub/dir/main.mcfunction`',
+				'$(package) `p` › `data/p/function/sub/dir/main.mcfunction` [$(copy)](command:kore-assistant.copyOutputPath?%22data%2Fp%2Ffunction%2Fsub%2Fdir%2Fmain.mcfunction%22 "Copy Output Path")',
 				`$(file) [\`${pathA}:5\`](${fileA.with({ fragment: 'L5' })})`,
-			].join('  \n') + '\n\n---\n\n$(terminal) `/function p:sub/dir/main`');
+			].join('  \n') + '\n\n---\n\n$(terminal) `/function p:sub/dir/main` [$(copy)](command:kore-assistant.copyCommand?%22%2Ffunction%20p%3Asub%2Fdir%2Fmain%22 "Copy Command")');
+			assert.deepStrictEqual((item.tooltip as vscode.MarkdownString).isTrusted, { enabledCommands: ['kore-assistant.copyCommand', 'kore-assistant.copyOutputPath'] });
 		});
 
 		test('a dynamic element gets the runtime note and marker, a datapack element no namespace lines', async () => {
@@ -390,7 +391,7 @@ suite('KoreTreeDataProvider', () => {
 			assert.strictEqual(item.description, '~ A.kt (1)');
 			assert.strictEqual(tooltipOf(item), [
 				'**Data Pack** `p`',
-				'$(package) `p/pack.mcmeta`',
+				'$(package) `p/pack.mcmeta` [$(copy)](command:kore-assistant.copyOutputPath?%22p%2Fpack.mcmeta%22 "Copy Output Path")',
 				`$(file) [\`${pathA}:1\`](${fileA.with({ fragment: 'L1' })})`,
 				'$(warning) _At least one part is computed at runtime, shown as its source snippet._',
 			].join('  \n'));

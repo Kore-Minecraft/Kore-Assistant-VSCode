@@ -39,6 +39,12 @@ suite('extension', () => {
 		}
 	});
 
+	test('copy commands take the value itself, as the hover copy links pass it', async () => {
+		await activatedApi();
+		await vscode.commands.executeCommand('kore-assistant.copyCommand', '/function p:main');
+		assert.strictEqual(await vscode.env.clipboard.readText(), '/function p:main');
+	});
+
 	// No Kotlin extension is installed in the test host, so `openTextDocument({ language: 'kotlin' })` falls back
 	// to plaintext: go through the file watchers with a real .kt file instead.
 	test('indexes a created Kotlin file with line-accurate ranges and drops it on delete', async () => {

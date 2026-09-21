@@ -125,7 +125,7 @@ export function elementTooltip(element: ResolvedKoreElement): vscode.MarkdownStr
 	const output = element.kindId === 'DATA_PACK' ? `\`${element.outputPath}\`` : `\`${element.resolvedDataPackName}\` › \`${element.outputPath}\``;
 	const lines = [
 		`**${kind ? displayNameFor(kind) : element.kindId}** \`${element.resourceLocation ?? element.name}\``,
-		`$(package) ${output}`,
+		`$(package) ${output} ${copyLink('OutputPath', element.outputPath, 'Copy Output Path')}`,
 		`$(file) ${declarationLink(element)}`,
 	];
 	if (element.isDynamic) {
@@ -133,11 +133,19 @@ export function elementTooltip(element: ResolvedKoreElement): vscode.MarkdownStr
 	}
 	const sections = [lines.join('  \n')];
 	if (element.command) {
-		sections.push(`$(terminal) \`${element.command}\``);
+		sections.push(`$(terminal) \`${element.command}\` ${copyLink('Command', element.command, 'Copy Command')}`);
 	}
 	const tooltip = new vscode.MarkdownString(sections.join(RULE));
+	tooltip.isTrusted = { enabledCommands: COPY_LINK_COMMANDS };
 	tooltip.supportThemeIcons = true;
 	return tooltip;
+}
+
+export const COPY_LINK_COMMANDS = ['kore-assistant.copyCommand', 'kore-assistant.copyOutputPath'];
+
+/** A clipboard icon running the field's copy command with the value itself as its argument. */
+function copyLink(field: 'Command' | 'OutputPath', value: string, title: string): string {
+	return `[$(copy)](command:kore-assistant.copy${field}?${encodeURIComponent(JSON.stringify(value))} "${title}")`;
 }
 
 /** Distinct values as code, cut short so one crowded namespace cannot stretch the hover off-screen. */

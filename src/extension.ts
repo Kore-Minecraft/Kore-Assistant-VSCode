@@ -46,9 +46,10 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 
 	// One `kore-assistant.copy<Field>` command per copyable field: a context-menu entry can only pass the tree item,
 	// so the field has to be baked into the command id. package.json gates each entry on the item's contextValue.
+	// The hover copy links pass the value itself, since a command link only carries JSON.
 	const copyCommands = COPYABLE_FIELDS.map(field =>
-		vscode.commands.registerCommand(`kore-assistant.copy${field[0].toUpperCase()}${field.slice(1)}`, async (item: KoreTreeItem) => {
-			const value = item.values[field];
+		vscode.commands.registerCommand(`kore-assistant.copy${field[0].toUpperCase()}${field.slice(1)}`, async (arg: KoreTreeItem | string) => {
+			const value = typeof arg === 'string' ? arg : arg.values[field];
 			if (value) {
 				await vscode.env.clipboard.writeText(value);
 			}
