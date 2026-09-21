@@ -1,11 +1,9 @@
 import * as vscode from 'vscode';
 import { isFunctionKind, kindById } from './koreDeclarations';
-import { koreElementManager, KoreElement, KoreFile, koreFileOf, ResolvedKoreElement } from './koreElements';
-import { parseKotlinFile } from './koreParser';
+import { KoreDiagnostics } from './koreDiagnostics';
+import { koreElementManager, KoreElement, KoreFile, koreFileOf, parseKoreFile, RESCAN_DEBOUNCE_MS, ResolvedKoreElement } from './koreElements';
+import { KoreProjectService } from './koreProject';
 import { CopyableField, elementTooltip, KoreTreeDataProvider, KoreTreeItem } from './koreTreeView';
-
-/** Delay before rescanning a document after an edit, so a full-document scan doesn't run on every keystroke. */
-const RESCAN_DEBOUNCE_MS = 300;
 
 const KOTLIN_FILES_GLOB = '**/*.kt';
 /** Gradle/IDE output folders can hold generated Kotlin that would show up as duplicates in the tree. */
@@ -25,11 +23,20 @@ let sortByFile = true;
 /** What `vscode.extensions.getExtension(...).exports` hands out, so tests can read the bundled element store. */
 export interface KoreAssistantApi {
 	koreElementManager: typeof koreElementManager;
+	koreProjects: KoreProjectService;
 }
 
 export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 	outputChannel = vscode.window.createOutputChannel('Kore Assistant');
 	updateContextVariables();
+
+	const koreProjects = new KoreProjectService();
+	koreProjects.onDidChange(() => {
+		for (const project of koreProjects.getProjects().values()) {
+			outputChannel.appendLine(`Kore project: ${project.dir} (version ${project.version ?? 'unknown'}${project.fromSources ? ', from sources' : ''}${project.hasGradlePlugin ? ', Gradle plugin' : ''})`);
+		}
+	});
+	koreProjects.refresh();
 
 	// Gutter icons use the dark variants only, for better visibility in all themes.
 	const gutterDecoration = (icon: string) => vscode.window.createTextEditorDecorationType({
@@ -78,6 +85,8 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 
 	context.subscriptions.push(
 		treeView,
+		koreProjects,
+		new KoreDiagnostics(koreElementManager),
 		datapackDecoration,
 		functionDecoration,
 		jsonDecoration,
@@ -122,7 +131,7 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 		updateDecorations(vscode.window.activeTextEditor);
 	}
 
-	return { koreElementManager };
+	return { koreElementManager, koreProjects };
 }
 
 function decorationTypeFor(element: ResolvedKoreElement): vscode.TextEditorDecorationType {
@@ -143,39 +152,6 @@ async function openDeclaration(item: KoreTreeItem) {
 	} else if (item.fileData) {
 		await vscode.window.showTextDocument(vscode.Uri.file(item.fileData.filePath));
 	}
-}
-
-/** Scans a file's text for Kore DSL declarations, without touching the shared element store. */
-function parseKoreFile(text: string, uri: vscode.Uri): KoreFile {
-	const positionAt = positionResolver(text);
-	const parsed = parseKotlinFile(text);
-	const declarations = parsed.declarations.map((decl): KoreElement => {
-		const builderLength = kindById(decl.kindId)!.builderName.length;
-		return { ...decl, range: new vscode.Range(positionAt(decl.offset), positionAt(decl.offset + builderLength)), uri };
-	});
-	return { ...parsed, declarations };
-}
-
-/** Offset -> Position without a TextDocument: binary search over the line start offsets of the text. */
-function positionResolver(text: string): (offset: number) => vscode.Position {
-	const lineStarts = [0];
-	for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) {
-		lineStarts.push(i + 1);
-	}
-
-	return offset => {
-		let low = 0;
-		let high = lineStarts.length - 1;
-		while (low < high) {
-			const mid = (low + high + 1) >> 1;
-			if (lineStarts[mid] <= offset) {
-				low = mid;
-			} else {
-				high = mid - 1;
-			}
-		}
-		return new vscode.Position(low, offset - lineStarts[low]);
-	};
 }
 
 async function revealElement(element: KoreElement) {

@@ -1,19 +1,35 @@
 import * as vscode from 'vscode';
 import { commandFor, kindById, outputPathFor, resourceLocationFor } from './koreDeclarations';
-import type { RawKoreDeclaration } from './koreParser';
+import { type RawProblem, scanCraftingShapedBody } from './koreInspections';
+import { parseKotlinFile, type RawFunctionCommand, type RawKoreDeclaration } from './koreParser';
 import { KoreSourceFile, KoreWorkspaceResolver } from './koreResolver';
+import { positionResolver, rangeOf } from './textPositions';
 
 /** Shown instead of a namespace/datapack name when the declaration sits outside any visible `dataPack { }`. */
 export const UNKNOWN_DATA_PACK = '<unknown datapack>';
 
+/** Delay before rescanning a document after an edit, so a full-document scan doesn't run on every keystroke. */
+export const RESCAN_DEBOUNCE_MS = 300;
+
 /** A Kore declaration as read straight from one file, before the workspace-wide resolution. */
-export interface KoreElement extends RawKoreDeclaration {
+export interface KoreElement extends RawKoreDeclaration<vscode.Range> {
+	/** The builder identifier, where the gutter icon and the tree reveal point. */
 	range: vscode.Range;
 	uri: vscode.Uri;
 }
 
-/** A scanned file: its elements plus what the resolver needs to follow constants and extension-function calls. */
-export type KoreFile = KoreSourceFile<KoreElement>;
+export interface KoreFunctionCommand extends RawFunctionCommand<vscode.Range> {
+	uri: vscode.Uri;
+}
+
+export type KoreProblem = RawProblem<vscode.Range>;
+
+/** A scanned file: its elements plus what the resolver and the diagnostics need from it. */
+export interface KoreFile extends KoreSourceFile<KoreElement> {
+	functionCommands: KoreFunctionCommand[];
+	/** Per-file findings computed at scan time (`craftingShaped` grids), published as-is by the diagnostics. */
+	problems: KoreProblem[];
+}
 
 /** A [KoreElement] with constants and datapack ownership resolved and every path formula applied, ready to display. */
 export interface ResolvedKoreElement extends KoreElement {
@@ -29,7 +45,37 @@ export function koreFileOf(source: KoreElement[] | KoreFile): KoreFile {
 	if (!Array.isArray(source)) {
 		return source;
 	}
-	return { calls: [], constants: [], dataPackBlocks: [], declaredFunctions: new Set(), declarations: source, extensionFunctions: [] };
+	return { calls: [], constants: [], dataPackBlocks: [], declaredFunctions: new Set(), declarations: source, extensionFunctions: [], functionCommands: [], problems: [] };
+}
+
+/** Scans a file's text for Kore DSL declarations, without touching the shared element store. */
+export function parseKoreFile(text: string, uri: vscode.Uri): KoreFile {
+	const positionAt = positionResolver(text);
+	const parsed = parseKotlinFile(text);
+	const problems: KoreProblem[] = [];
+	const declarations = parsed.declarations.map((decl): KoreElement => {
+		if (decl.kindId === 'CRAFTING_SHAPED' && decl.bodyRange) {
+			for (const problem of scanCraftingShapedBody(text.slice(decl.bodyRange.start, decl.bodyRange.end), decl.bodyRange.start)) {
+				problems.push({ ...problem, range: rangeOf(positionAt, problem.range) });
+			}
+		}
+		const builderLength = kindById(decl.kindId)!.builderName.length;
+		return {
+			...decl,
+			bodyRange: decl.bodyRange && rangeOf(positionAt, decl.bodyRange),
+			nameArgRange: rangeOf(positionAt, decl.nameArgRange),
+			range: new vscode.Range(positionAt(decl.offset), positionAt(decl.offset + builderLength)),
+			uri,
+		};
+	});
+	const functionCommands = parsed.functionCommands.map((command): KoreFunctionCommand => ({
+		...command,
+		argsRange: rangeOf(positionAt, command.argsRange),
+		nameArgRange: rangeOf(positionAt, command.nameArgRange),
+		namespaceArgRange: command.namespaceArgRange && rangeOf(positionAt, command.namespaceArgRange),
+		uri,
+	}));
+	return { ...parsed, declarations, functionCommands, problems };
 }
 
 export class KoreElementManager {
@@ -40,10 +86,12 @@ export class KoreElementManager {
 	readonly onDidChangeElements: vscode.Event<void> = this._onDidChangeElements.event;
 	/** Resolved view of every file, rebuilt lazily after a change: the tree view asks for it once per node. */
 	private resolved: ResolvedKoreElement[] | undefined;
+	private resolver: KoreWorkspaceResolver | undefined;
 
 	public getElements(): ResolvedKoreElement[] {
 		if (!this.resolved) {
 			const resolver = new KoreWorkspaceResolver(this.files);
+			this.resolver = resolver;
 			this.resolved = [...this.files].flatMap(([fsPath, file]) => file.declarations.map(element => {
 				const strings = resolver.resolve(fsPath, element);
 				const resolvedDataPackName = strings.dataPackName ?? UNKNOWN_DATA_PACK;
@@ -74,6 +122,10 @@ export class KoreElementManager {
 		return this.byUri.get(uri.fsPath) ?? [];
 	}
 
+	public getFiles(): ReadonlyMap<string, KoreFile> {
+		return this.files;
+	}
+
 	public removeElementsForUris(uris: Iterable<vscode.Uri>): void {
 		for (const uri of uris) {
 			this.files.delete(uri.fsPath);
@@ -95,8 +147,15 @@ export class KoreElementManager {
 		this.invalidate();
 	}
 
+	/** Follows a reference or template read at `offset` of the file through the workspace's constants, like a name would. */
+	public resolveText(uri: vscode.Uri, text: string, offset: number): string | undefined {
+		this.getElements();
+		return this.resolver!.resolveString(uri.fsPath, text, offset);
+	}
+
 	private invalidate(): void {
 		this.resolved = undefined;
+		this.resolver = undefined;
 		this.byKindId = undefined;
 		this.byUri = undefined;
 		this._onDidChangeElements.fire();

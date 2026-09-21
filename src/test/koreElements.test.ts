@@ -1,7 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { KoreElement, KoreElementManager, KoreFile, UNKNOWN_DATA_PACK } from '../koreElements';
-import { parseKotlinFile } from '../koreParser';
+import { KoreElement, KoreElementManager, KoreFile, parseKoreFile, UNKNOWN_DATA_PACK } from '../koreElements';
 
 const fileA = vscode.Uri.file('/ws/A.kt');
 const fileB = vscode.Uri.file('/ws/B.kt');
@@ -9,13 +8,11 @@ const constantsKt = vscode.Uri.file('/ws/Constants.kt');
 const otherProject = vscode.Uri.file('/other/Main.kt');
 
 function element(uri: vscode.Uri, kindId: string, name: string, extra: Partial<KoreElement> = {}): KoreElement {
-	return { kindId, name, isDynamic: false, dynamicFields: [], offset: 0, nameArgRange: { start: 0, end: 0 }, range: new vscode.Range(0, 0, 0, 1), uri, ...extra };
+	return { kindId, name, isDynamic: false, dynamicFields: [], offset: 0, nameArgRange: new vscode.Range(0, 0, 0, 0), range: new vscode.Range(0, 0, 0, 1), uri, ...extra };
 }
 
-/** A file scanned for real, with line 0 ranges since only offsets matter to the resolver. */
 function file(uri: vscode.Uri, text: string): KoreFile {
-	const parsed = parseKotlinFile(text);
-	return { ...parsed, declarations: parsed.declarations.map(decl => ({ ...decl, range: new vscode.Range(0, decl.offset, 0, decl.offset + 1), uri })) };
+	return parseKoreFile(text, uri);
 }
 
 suite('KoreElementManager', () => {

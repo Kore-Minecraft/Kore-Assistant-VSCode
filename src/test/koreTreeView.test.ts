@@ -10,7 +10,7 @@ const fileB = vscode.Uri.file('/ws/B.kt');
 const pathA = vscode.workspace.asRelativePath(fileA, false);
 
 function element(uri: vscode.Uri, kindId: string, name: string, line = 0, extra: Partial<KoreElement> = {}): KoreElement {
-	return { kindId, name, isDynamic: false, dynamicFields: [], offset: 0, nameArgRange: { start: 0, end: 0 }, range: new vscode.Range(line, 0, line, 1), uri, ...extra };
+	return { kindId, name, isDynamic: false, dynamicFields: [], offset: 0, nameArgRange: new vscode.Range(line, 0, line, 0), range: new vscode.Range(line, 0, line, 1), uri, ...extra };
 }
 
 function labels(items: KoreTreeItem[]): string[] {

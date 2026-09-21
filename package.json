@@ -108,6 +108,16 @@
         "path": "./snippets/kotlin.code-snippets"
       }
     ],
+    "configuration": {
+      "title": "Kore Assistant",
+      "properties": {
+        "kore-assistant.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report duplicate declarations, unresolved function commands and invalid craftingShaped patterns as problems."
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {

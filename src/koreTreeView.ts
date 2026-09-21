@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { DATA_PACK_KIND, displayNameFor, isFunctionKind, kindById, KoreDeclarationKind, outputPathFor } from './koreDeclarations';
 import { koreElementManager, ResolvedKoreElement, UNKNOWN_DATA_PACK } from './koreElements';
+import { declarationPathOf } from './textPositions';
 
 /** Every value a tree item can put on the clipboard, one "Copy <Field>" context-menu entry per key. */
 export interface CopyableValues {
@@ -51,11 +52,6 @@ function kindSortKey(kindId: string): string {
 		KIND_SORT_KEYS.set(kindId, key);
 	}
 	return key;
-}
-
-/** `path/from/workspace.kt:line`, the form terminals and most editors open directly. */
-function declarationPathOf(element: ResolvedKoreElement): string {
-	return `${vscode.workspace.asRelativePath(element.uri, false)}:${element.range.start.line + 1}`;
 }
 
 /** Same tooltip for the tree item and the gutter hover: values render as code so they read as copy-ready. */

@@ -222,7 +222,7 @@ export class KoreWorkspaceResolver {
 	}
 
 	/** A reference or a template whose every `$x` / `${x}` is a known constant, followed through `val A = B` chains. */
-	private resolveString(filePath: string, text: string, offset: number, depth = 0): string | undefined {
+	resolveString(filePath: string, text: string, offset: number, depth = 0): string | undefined {
 		if (depth > MAX_CONSTANT_DEPTH) {
 			return undefined;
 		}

@@ -53,9 +53,10 @@ export interface KoreStringValue {
 	text: string;
 }
 
-export interface RawKoreDeclaration {
+/** `R` is the range type: source offsets straight out of the scanner, editor ranges once a file is stored. */
+export interface RawKoreDeclaration<R = OffsetRange> {
 	/** The trailing lambda's body, `undefined` for a block-less scoped builder call. */
-	bodyRange?: OffsetRange;
+	bodyRange?: R;
 	dataPackName?: string;
 	directory?: string;
 	/** Which fields hold a source snippet instead of a literal, so the resolver knows what to try constants on. */
@@ -67,7 +68,7 @@ export interface RawKoreDeclaration {
 	kindId: string;
 	name: string;
 	/** The name argument's expression text, for diagnostics. */
-	nameArgRange: OffsetRange;
+	nameArgRange: R;
 	namespace?: string;
 	/** Offset of the builder identifier. */
 	offset: number;
@@ -104,18 +105,20 @@ export interface KotlinCall {
  * overloads are `function(name, group = false)` and `function(namespace, name, group = false)`, namespace FIRST,
  * the reverse of the declaration's `function(name, namespace, directory)`.
  */
-export interface RawFunctionCommand {
+export interface RawFunctionCommand<R = OffsetRange> {
 	/** The whole argument list, between the parentheses. */
-	argsRange: OffsetRange;
+	argsRange: R;
+	/** Which of name/namespace hold a reference rather than a literal, for the resolver. */
+	dynamicFields: KoreStringField[];
 	/** Offset of the enclosing function-family declaration's builder identifier. */
 	enclosingDeclarationOffset: number;
 	/** `true` only when the group argument is literally `true`. */
 	group: boolean;
 	isDynamic: boolean;
 	name: string;
-	nameArgRange: OffsetRange;
+	nameArgRange: R;
 	namespace?: string;
-	namespaceArgRange?: OffsetRange;
+	namespaceArgRange?: R;
 	/** The call passes two positional strings, so the first one is the namespace. */
 	namespaceFirst: boolean;
 	offset: number;
@@ -134,12 +137,12 @@ export interface ParsedKotlinFile {
 	functionCommands: RawFunctionCommand[];
 }
 
-interface RawArg {
+export interface RawArg {
 	start: number;
 	text: string;
 }
 
-interface ParsedArgs {
+export interface ParsedArgs {
 	named: Map<string, RawArg>;
 	positional: RawArg[];
 }
@@ -518,12 +521,20 @@ function functionCommandOf(args: ParsedArgs, offset: number, argsRange: OffsetRa
 	const groupArg = named.get(GROUP_PARAMETER_NAME) ?? positional[namespaceFirst ? 2 : 1];
 	const name = koreStringValueOf(nameArg.text);
 	const namespace = namespaceArg && koreStringValueOf(namespaceArg.text);
+	const dynamicFields: KoreStringField[] = [];
+	if (name.isDynamic) {
+		dynamicFields.push('name');
+	}
+	if (namespace?.isDynamic) {
+		dynamicFields.push('namespace');
+	}
 
 	return {
 		argsRange,
+		dynamicFields,
 		enclosingDeclarationOffset,
 		group: groupArg?.text === 'true',
-		isDynamic: name.isDynamic || namespace?.isDynamic === true,
+		isDynamic: dynamicFields.length > 0,
 		name: name.text,
 		nameArgRange: rangeOf(nameArg),
 		namespace: namespace?.text,
@@ -583,7 +594,7 @@ function namespaceAssignmentInBody(bodyText: string): KoreStringValue | undefine
 }
 
 /** Splits a call's raw argument-list text into positional args and `name = value` named args, with absolute offsets. */
-function parseArgs(argsText: string, argsStart: number): ParsedArgs {
+export function parseArgs(argsText: string, argsStart: number): ParsedArgs {
 	const positional: RawArg[] = [];
 	const named = new Map<string, RawArg>();
 	for (const part of splitTopLevel(argsText, c => c === ',')) {
@@ -602,7 +613,7 @@ function parseArgs(argsText: string, argsStart: number): ParsedArgs {
 }
 
 /** Splits `text` on separator characters found outside strings, comments and nested brackets, trimming each part. */
-function splitTopLevel(text: string, isSeparator: (c: string) => boolean): RawArg[] {
+export function splitTopLevel(text: string, isSeparator: (c: string) => boolean): RawArg[] {
 	const parts: RawArg[] = [];
 	let start = 0;
 	while (start <= text.length) {
@@ -627,7 +638,7 @@ function splitTopLevel(text: string, isSeparator: (c: string) => boolean): RawAr
  * Walks `text` from `start` skipping strings, chars, comments and bracketed groups, and returns the index of the first
  * depth-0 character `stop` accepts, or of an unbalanced closing bracket, or `text.length`.
  */
-function scanTopLevel(text: string, start: number, stop: (c: string, i: number) => boolean): number {
+export function scanTopLevel(text: string, start: number, stop: (c: string, i: number) => boolean): number {
 	let depth = 0;
 	let i = start;
 	const len = text.length;
@@ -669,7 +680,7 @@ function scanTopLevel(text: string, start: number, stop: (c: string, i: number) 
  * `+` concatenation of those. Falls back to a clipped, whitespace-collapsed source snippet (marked dynamic) for
  * anything else, same fallback the reference plugin uses.
  */
-function koreStringValueOf(raw: string): KoreStringValue {
+export function koreStringValueOf(raw: string): KoreStringValue {
 	return evaluateStringExpression(raw) ?? placeholder(raw);
 }
 
