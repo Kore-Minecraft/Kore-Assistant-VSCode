@@ -35,6 +35,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ### Changed
 - Grouping and sorting are picked from two quick picks instead of toggle buttons; copy entries are direct menu items instead of the "Copy..." picker
 - Explorer tooltips are Markdown, with values rendered as code, and match the editor hover
+- The element hover is titled by the resource location, shows the datapack and output path on one row and the file as a link to the declaration, with the command set apart under a rule; the link also keeps the explorer hover open while the mouse is inside it
 - Declarations grouped by file or listed flat show their full path rather than the last segment
 - A trailing comment after a name argument or a `namespace = "..."` statement no longer makes the value dynamic
 

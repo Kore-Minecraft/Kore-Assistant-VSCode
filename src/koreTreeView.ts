@@ -104,25 +104,40 @@ function matches(element: ResolvedKoreElement, filter: string): boolean {
 	return element.name.toLowerCase().includes(filter) || element.resolvedNamespace.toLowerCase().includes(filter) || element.outputPath.toLowerCase().includes(filter);
 }
 
-/** Same tooltip for the tree item and the gutter hover: values render as code so they read as copy-ready. */
+/**
+ * `file:line` as a link opening the declaration (`#L<line>` selects the line). Besides being handy, a link is what keeps
+ * a tree hover open when the mouse moves into it: VS Code hides link-less workbench hovers on mouse-out.
+ */
+function declarationLink(element: ResolvedKoreElement): string {
+	return `[\`${declarationPathOf(element)}\`](${element.uri.with({ fragment: `L${element.range.start.line + 1}` })})`;
+}
+
+/** A horizontal rule needs blank lines around it, else Markdown turns the line above into a heading. */
+export const RULE = '\n\n---\n\n';
+
+/**
+ * Same tooltip for the tree item and the gutter hover. The resource location is the title since it already carries the
+ * namespace and name, the datapack and output path share one row, the command sits alone under a rule so it reads as
+ * copy-ready.
+ */
 export function elementTooltip(element: ResolvedKoreElement): vscode.MarkdownString {
 	const kind = kindById(element.kindId);
-	const lines = [`**${kind ? displayNameFor(kind) : element.kindId}** \`${element.name}\``];
-	if (element.kindId !== 'DATA_PACK') {
-		lines.push(`Namespace: \`${element.resolvedNamespace}\``, `Data Pack: \`${element.resolvedDataPackName}\``);
-	}
-	lines.push(`File: \`${declarationPathOf(element)}\``);
-	if (element.resourceLocation) {
-		lines.push(`Resource Location: \`${element.resourceLocation}\``);
-	}
-	lines.push(`Output Path: \`${element.outputPath}\``);
-	if (element.command) {
-		lines.push(`Command: \`${element.command}\``);
-	}
+	const output = element.kindId === 'DATA_PACK' ? `\`${element.outputPath}\`` : `\`${element.resolvedDataPackName}\` › \`${element.outputPath}\``;
+	const lines = [
+		`**${kind ? displayNameFor(kind) : element.kindId}** \`${element.resourceLocation ?? element.name}\``,
+		`$(package) ${output}`,
+		`$(file) ${declarationLink(element)}`,
+	];
 	if (element.isDynamic) {
-		lines.push('_At least one part is computed at runtime, shown as its source snippet._');
+		lines.push('$(warning) _At least one part is computed at runtime, shown as its source snippet._');
 	}
-	return new vscode.MarkdownString(lines.join('  \n'));
+	const sections = [lines.join('  \n')];
+	if (element.command) {
+		sections.push(`$(terminal) \`${element.command}\``);
+	}
+	const tooltip = new vscode.MarkdownString(sections.join(RULE));
+	tooltip.supportThemeIcons = true;
+	return tooltip;
 }
 
 /** Distinct values as code, cut short so one crowded namespace cannot stretch the hover off-screen. */
@@ -146,7 +161,7 @@ function containerTooltip(options: KoreTreeItemOptions, values: CopyableValues):
 		case 'datapack':
 			lines = [
 				`**Data Pack** \`${label}\``,
-				...(options.element ? [`File: \`${declarationPathOf(options.element)}\``] : []),
+				...(options.element ? [`File: ${declarationLink(options.element)}`] : []),
 				...(values.namespace ? [`Output Path: \`${label}/\``] : []),
 				count,
 				`Namespaces: ${listed(elements.map(e => e.resolvedNamespace))}`,

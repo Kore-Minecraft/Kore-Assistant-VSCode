@@ -375,14 +375,10 @@ suite('KoreTreeDataProvider', () => {
 			assert.strictEqual(item.command?.command, 'kore-assistant.revealKoreElement');
 			assert.strictEqual(item.command?.arguments?.[0], item.element);
 			assert.strictEqual(tooltipOf(item), [
-				'**Function** `dir/main`',
-				'Namespace: `p`',
-				'Data Pack: `p`',
-				`File: \`${pathA}:5\``,
-				'Resource Location: `p:sub/dir/main`',
-				'Output Path: `data/p/function/sub/dir/main.mcfunction`',
-				'Command: `/function p:sub/dir/main`',
-			].join('  \n'));
+				'**Function** `p:sub/dir/main`',
+				'$(package) `p` › `data/p/function/sub/dir/main.mcfunction`',
+				`$(file) [\`${pathA}:5\`](${fileA.with({ fragment: 'L5' })})`,
+			].join('  \n') + '\n\n---\n\n$(terminal) `/function p:sub/dir/main`');
 		});
 
 		test('a dynamic element gets the runtime note and marker, a datapack element no namespace lines', async () => {
@@ -394,9 +390,9 @@ suite('KoreTreeDataProvider', () => {
 			assert.strictEqual(item.description, '~ A.kt (1)');
 			assert.strictEqual(tooltipOf(item), [
 				'**Data Pack** `p`',
-				`File: \`${pathA}:1\``,
-				'Output Path: `p/pack.mcmeta`',
-				'_At least one part is computed at runtime, shown as its source snippet._',
+				'$(package) `p/pack.mcmeta`',
+				`$(file) [\`${pathA}:1\`](${fileA.with({ fragment: 'L1' })})`,
+				'$(warning) _At least one part is computed at runtime, shown as its source snippet._',
 			].join('  \n'));
 		});
 
@@ -440,7 +436,7 @@ suite('KoreTreeDataProvider', () => {
 			assert.strictEqual(declared.contextValue, 'datapack declarationPath filePath name namespace outputPath outputPaths resourceLocations');
 			assert.strictEqual(tooltipOf(declared), [
 				'**Data Pack** `p`',
-				`File: \`${pathA}:2\``,
+				`File: [\`${pathA}:2\`](${fileA.with({ fragment: 'L2' })})`,
 				'Output Path: `p/`',
 				'Elements: 1',
 				'Namespaces: `p`',

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { koreElementManager, ResolvedKoreElement } from './koreElements';
-import { DEFAULT_VIEW_OPTIONS, elementTooltip, KoreGroupBy, KoreSortBy, KoreTreeDataProvider, KoreTreeItem, KoreViewOptions } from './koreTreeView';
+import { DEFAULT_VIEW_OPTIONS, elementTooltip, KoreGroupBy, KoreSortBy, KoreTreeDataProvider, KoreTreeItem, KoreViewOptions, RULE } from './koreTreeView';
 
 const GROUPINGS: [KoreGroupBy, string, string][] = [
 	['output', 'Output Structure', 'datapack > namespace > resource folder, the generated layout'],
@@ -26,9 +26,8 @@ export interface RevealTarget {
 export function gutterHover(element: ResolvedKoreElement): vscode.MarkdownString {
 	const target: RevealTarget = { lineNumber: element.range.start.line + 1, uri: element.uri.toString() };
 	const hover = elementTooltip(element);
-	hover.appendMarkdown(`  \n[$(list-tree) Reveal in Kore Explorer](command:kore-assistant.revealInExplorer?${encodeURIComponent(JSON.stringify(target))})`);
+	hover.appendMarkdown(`${RULE}[$(list-tree) Reveal in Kore Explorer](command:kore-assistant.revealInExplorer?${encodeURIComponent(JSON.stringify(target))})`);
 	hover.isTrusted = { enabledCommands: ['kore-assistant.revealInExplorer'] };
-	hover.supportThemeIcons = true;
 	return hover;
 }
 
