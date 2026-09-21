@@ -16,12 +16,12 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Builder names follow Kore 2.14.0-26.2: `shipwreck`, and `single` / `byCost` / `byCostWithDifficulty` inside `enchantmentProviders { }`, which now write to `enchantment_provider/`
 - Explorer categories are ordered by resource folder, so related kinds (all recipes, all features) sit next to each other
 - A Kotlin function declaration named like a builder (`fun DataPack.tick(name: String) { }`) is no longer reported as a declaration
-
-### Removed
-- `densityFunction`, `shipWreck` and the `*EnchantmentProvider` builders, which no longer exist in Kore
 - Faster workspace scan: Kotlin files are read from disk in parallel and the Explorer refreshes once, not once per file
 - Generated Kotlin under `build/`, `.gradle/`, `.idea/` and `node_modules/` is no longer scanned
 - Deleting or renaming a Kotlin file now removes its elements from the Explorer
+
+### Removed
+- `densityFunction`, `shipWreck` and the `*EnchantmentProvider` builders, which no longer exist in Kore
 
 ## [0.2.0] - 2026-07-27
 
