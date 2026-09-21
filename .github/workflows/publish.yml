@@ -28,3 +28,5 @@ jobs:
         with:
           pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
           registryUrl: https://marketplace.visualstudio.com
+          # tsdown bundles everything into dist/extension.cjs, and vsce's npm-based dependency walk fails on bun installs
+          dependencies: false
