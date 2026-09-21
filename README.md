@@ -6,7 +6,7 @@ A Visual Studio Code extension providing powerful tools for working with [Kore](
 
 ## Features
 
-- **Kore declaration discovery**: Detects datapacks, functions, predicates, recipes, advancements, world-generation resources, and the other supported Kore DSL builders in Kotlin files
+- **Kore declaration discovery**: Detects datapacks, functions, tags, predicates, recipes, advancements, dialogs, world-generation resources (features, carvers, density functions, structures), and the other Kore DSL builders in Kotlin files, including builders nested in a scope such as `recipes { }` or `structures { }`
 - **Gutter icons and hovers**: Marks declarations in the editor and shows their resource location, generated output path, source location, and relevant Minecraft command
 - **Kore Explorer**: Browses declarations by datapack and resource kind, or groups them by source file
 - **Navigation and copy actions**: Reveals the declaration source and copies its resource location, output path, command, or name from the explorer
@@ -54,7 +54,7 @@ Visit [kore.ayfri.com](https://kore.ayfri.com/) for official documentation.
 
 ## Usage
 
-1. Open a Kotlin file containing Kore declarations, such as `dataPack`, `function`, `predicate`, or `craftingShaped`
+1. Open a Kotlin file containing Kore declarations, such as `dataPack`, `function`, `predicate`, `blockTag`, or `recipes { craftingShaped(...) }`
 2. The extension will automatically detect and highlight them with gutter icons
 3. Use the Kore Explorer in the Activity Bar to browse declarations by datapack and resource kind
 4. Select a declaration to jump to its Kotlin source, or use its context menu to copy its generated value
