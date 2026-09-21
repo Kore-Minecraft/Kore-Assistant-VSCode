@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { parseKoreDeclarations } from '../koreParser';
+import { parseKoreDeclarations, parseKotlinFile } from '../koreParser';
 
 suite('koreParser', () => {
 	test('parses a plain dataPack + function pair', () => {
@@ -460,6 +460,67 @@ suite('koreParser', () => {
 			`);
 			assert.deepStrictEqual(decls.map(d => d.kindId), ['SULFUR_CUBE_ARCHETYPE', 'STRUCTURE']);
 			assert.strictEqual(decls[1].namespace, 'ns');
+		});
+	});
+
+	suite('parseKotlinFile resolution inputs', () => {
+		test('collects string constants, skipping templates and non-strings', () => {
+			const { constants } = parseKotlinFile(`
+				const val NAMESPACE = "lifesteal"
+				val typed: String = "typed"
+				val escaped = "a\\"b"
+				val dynamic = "x$y"
+				val number = 3
+				fun f() { val local = "inner" }
+			`);
+			assert.deepStrictEqual([...constants], [['NAMESPACE', 'lifesteal'], ['typed', 'typed'], ['escaped', 'a"b'], ['local', 'inner']]);
+		});
+
+		test('tracks DataPack extension function bodies, every declared function name, and the enclosing function of a declaration', () => {
+			const src = `
+				fun DataPack.setup(): Unit {
+					function("a") { }
+					helper()
+				}
+				private fun <T> DataPack.generic(x: T) { function("b") { } }
+				fun Function.other() { }
+				fun DataPack.expressionBody() = function("c") { }
+			`;
+			const parsed = parseKotlinFile(src);
+
+			assert.deepStrictEqual(parsed.extensionFunctions.map(f => f.name), ['setup', 'generic']);
+			assert.strictEqual(src.slice(parsed.extensionFunctions[0].start, parsed.extensionFunctions[0].end).includes('helper()'), true);
+			assert.deepStrictEqual([...parsed.declaredFunctions], ['setup', 'generic', 'other', 'expressionBody']);
+			assert.deepStrictEqual(parsed.declarations.map(d => [d.name, d.enclosingFunction]), [['a', 'setup'], ['b', 'generic'], ['c', undefined]]);
+			assert.deepStrictEqual(parsed.calls.map(c => c.name), ['helper']);
+		});
+
+		test('records dataPack block ranges and the candidate calls inside them, but not builders or constructors', () => {
+			const src = `
+				dataPack(NAME) {
+					setup()
+					load { tick() }
+					Foo("x")
+					function("f") { }
+				}
+			`;
+			const parsed = parseKotlinFile(src);
+
+			assert.strictEqual(parsed.dataPackBlocks.length, 1);
+			assert.deepStrictEqual(parsed.dataPackBlocks[0], { name: 'NAME', isDynamic: true, start: src.indexOf('{') + 1, end: src.lastIndexOf('}') });
+			assert.deepStrictEqual(parsed.calls.map(c => c.name), ['setup']);
+		});
+
+		test('an element inside a dataPack block has no enclosing function even when nested in an extension', () => {
+			const parsed = parseKotlinFile(`fun DataPack.wrap() { dataPack("p") { function("f") { } } }`);
+			assert.strictEqual(parsed.declarations[0].dataPackName, 'p');
+			assert.strictEqual(parsed.declarations[0].enclosingFunction, undefined);
+		});
+
+		test('lists which fields are dynamic', () => {
+			const [decl] = parseKoreDeclarations(`dataPack(NAME) { function("f_$suffix", namespace = "ns", directory = dir) { } }`);
+			assert.deepStrictEqual(decl.dynamicFields, ['name', 'directory', 'dataPackName']);
+			assert.deepStrictEqual(parseKoreDeclarations(`function("f") { }`)[0].dynamicFields, []);
 		});
 	});
 });
