@@ -224,7 +224,7 @@ suite('KoreTreeDataProvider', () => {
 			const [file] = await provider.getChildren();
 			const items = await provider.getChildren(file);
 			const iconNames = items.map(i => (i.iconPath as { dark: vscode.Uri }).dark.path.split('/').pop());
-			assert.deepStrictEqual(iconNames, ['datapack-dark.svg', 'json-dark.svg', 'function-dark.svg']);
+			assert.deepStrictEqual(iconNames, ['datapack-dark.svg', 'function-dark.svg', 'json-dark.svg']);
 		});
 	});
 });

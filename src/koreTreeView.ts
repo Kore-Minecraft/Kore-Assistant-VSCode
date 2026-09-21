@@ -265,14 +265,14 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 		return result;
 	}
 
-	// DATA_PACK always sorts first (the container everything else groups under), the rest alphabetically by
-	// display name - generalizes the old fixed "datapack before function" ordering to N categories.
+	// DATA_PACK always sorts first (the container everything else groups under), the rest by resource folder then
+	// display name, so the 60+ configured feature kinds or the 20 recipe kinds stay clustered together.
 	private kindSortKey(kindId: string): string {
 		if (kindId === 'DATA_PACK') {
 			return '';
 		}
 		const kind = kindById(kindId);
-		return kind ? displayNameFor(kind) : kindId;
+		return kind ? `${kind.resourceFolder}/${displayNameFor(kind)}` : kindId;
 	}
 
 	// Groups first, then (when sorting by file) the file path, then kind, then name.
