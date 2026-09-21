@@ -78,28 +78,41 @@
         "title": "Copy Declaration Path"
       },
       {
-        "command": "kore-assistant.toggleGrouping",
-        "title": "Group by Type (currently grouped by type/path)",
-        "tooltip": "Switch to grouping by file",
+        "command": "kore-assistant.copyResourceLocations",
+        "title": "Copy All Resource Locations"
+      },
+      {
+        "command": "kore-assistant.copyOutputPaths",
+        "title": "Copy All Output Paths"
+      },
+      {
+        "command": "kore-assistant.selectGrouping",
+        "title": "Kore: Group Explorer By...",
         "icon": "$(list-tree)"
       },
       {
-        "command": "kore-assistant.toggleGroupingByFile",
-        "title": "Group by File (currently grouped by file)",
-        "tooltip": "Switch to grouping by type/path",
-        "icon": "$(file-directory)"
-      },
-      {
-        "command": "kore-assistant.toggleSorting",
-        "title": "Sort by Name (currently sorted by file)",
-        "tooltip": "Switch to sorting by name",
+        "command": "kore-assistant.selectSorting",
+        "title": "Kore: Sort Explorer By...",
         "icon": "$(sort-precedence)"
       },
       {
-        "command": "kore-assistant.toggleSortingByName",
-        "title": "Sort by File (currently sorted by name)",
-        "tooltip": "Switch to sorting by file",
-        "icon": "$(symbol-array)"
+        "command": "kore-assistant.filter",
+        "title": "Kore: Filter Explorer",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "kore-assistant.clearFilter",
+        "title": "Kore: Clear Explorer Filter",
+        "icon": "$(filter-filled)"
+      },
+      {
+        "command": "kore-assistant.refreshExplorer",
+        "title": "Kore: Refresh Explorer",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kore-assistant.revealInExplorer",
+        "title": "Kore: Reveal in Kore Explorer"
       }
     ],
     "snippets": [
@@ -146,28 +159,44 @@
         { "command": "kore-assistant.copyOutputPath", "when": "false" },
         { "command": "kore-assistant.copyCommand", "when": "false" },
         { "command": "kore-assistant.copyFilePath", "when": "false" },
-        { "command": "kore-assistant.copyDeclarationPath", "when": "false" }
+        { "command": "kore-assistant.copyDeclarationPath", "when": "false" },
+        { "command": "kore-assistant.copyResourceLocations", "when": "false" },
+        { "command": "kore-assistant.copyOutputPaths", "when": "false" },
+        { "command": "kore-assistant.clearFilter", "when": "koreFilterActive" },
+        { "command": "kore-assistant.revealInExplorer", "when": "editorLangId == kotlin" }
+      ],
+      "editor/context": [
+        {
+          "command": "kore-assistant.revealInExplorer",
+          "when": "editorLangId == kotlin",
+          "group": "navigation@9"
+        }
       ],
       "view/title": [
         {
-          "command": "kore-assistant.toggleGrouping",
-          "when": "view == koreExplorer && !groupByFile",
+          "command": "kore-assistant.filter",
+          "when": "view == koreExplorer && !koreFilterActive",
           "group": "navigation@1"
         },
         {
-          "command": "kore-assistant.toggleGroupingByFile",
-          "when": "view == koreExplorer && groupByFile",
+          "command": "kore-assistant.clearFilter",
+          "when": "view == koreExplorer && koreFilterActive",
           "group": "navigation@1"
         },
         {
-          "command": "kore-assistant.toggleSorting",
-          "when": "view == koreExplorer && sortByFile",
+          "command": "kore-assistant.selectGrouping",
+          "when": "view == koreExplorer",
           "group": "navigation@2"
         },
         {
-          "command": "kore-assistant.toggleSortingByName",
-          "when": "view == koreExplorer && !sortByFile",
-          "group": "navigation@2"
+          "command": "kore-assistant.selectSorting",
+          "when": "view == koreExplorer",
+          "group": "navigation@3"
+        },
+        {
+          "command": "kore-assistant.refreshExplorer",
+          "when": "view == koreExplorer",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -200,6 +229,16 @@
           "command": "kore-assistant.copyCommand",
           "when": "view == koreExplorer && viewItem =~ /\\bcommand\\b/",
           "group": "kore@5"
+        },
+        {
+          "command": "kore-assistant.copyResourceLocations",
+          "when": "view == koreExplorer && viewItem =~ /\\bresourceLocations\\b/",
+          "group": "korebulk@1"
+        },
+        {
+          "command": "kore-assistant.copyOutputPaths",
+          "when": "view == koreExplorer && viewItem =~ /\\boutputPaths\\b/",
+          "group": "korebulk@2"
         },
         {
           "command": "kore-assistant.copyFilePath",

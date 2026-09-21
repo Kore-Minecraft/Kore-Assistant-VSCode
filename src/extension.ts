@@ -2,23 +2,21 @@ import * as vscode from 'vscode';
 import { isFunctionKind, kindById } from './koreDeclarations';
 import { KoreDiagnostics } from './koreDiagnostics';
 import { koreElementManager, KoreElement, KoreFile, koreFileOf, parseKoreFile, RESCAN_DEBOUNCE_MS, ResolvedKoreElement } from './koreElements';
+import { KoreExplorer } from './koreExplorer';
 import { KoreProjectService } from './koreProject';
-import { CopyableField, elementTooltip, KoreTreeDataProvider, KoreTreeItem } from './koreTreeView';
+import { CopyableField, elementTooltip, KoreTreeItem } from './koreTreeView';
 
 const KOTLIN_FILES_GLOB = '**/*.kt';
 /** Gradle/IDE output folders can hold generated Kotlin that would show up as duplicates in the tree. */
 const KOTLIN_FILES_EXCLUDE = '**/{build,.gradle,.idea,node_modules}/**';
+const EXCLUDED_FOLDER = /[\\/](build|\.gradle|\.idea|node_modules)[\\/]/;
 
-const COPYABLE_FIELDS: CopyableField[] = ['name', 'namespace', 'resourceLocation', 'outputPath', 'command', 'filePath', 'declarationPath'];
+const COPYABLE_FIELDS: CopyableField[] = ['name', 'namespace', 'resourceLocation', 'outputPath', 'command', 'filePath', 'declarationPath', 'resourceLocations', 'outputPaths'];
 
 let datapackDecoration: vscode.TextEditorDecorationType;
 let functionDecoration: vscode.TextEditorDecorationType;
 let jsonDecoration: vscode.TextEditorDecorationType;
 let outputChannel: vscode.OutputChannel;
-let treeDataProvider: KoreTreeDataProvider;
-
-let groupByFile = false;
-let sortByFile = true;
 
 /** What `vscode.extensions.getExtension(...).exports` hands out, so tests can read the bundled element store. */
 export interface KoreAssistantApi {
@@ -28,7 +26,6 @@ export interface KoreAssistantApi {
 
 export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 	outputChannel = vscode.window.createOutputChannel('Kore Assistant');
-	updateContextVariables();
 
 	const koreProjects = new KoreProjectService();
 	koreProjects.onDidChange(() => {
@@ -47,29 +44,6 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 	functionDecoration = gutterDecoration('function');
 	jsonDecoration = gutterDecoration('json');
 
-	treeDataProvider = new KoreTreeDataProvider(context.extensionUri, groupByFile, sortByFile);
-	const treeView = vscode.window.createTreeView('koreExplorer', { treeDataProvider, showCollapseAll: true });
-
-	function toggleGroupingMode() {
-		groupByFile = !groupByFile;
-		treeDataProvider.setGroupByFile(groupByFile);
-		treeDataProvider.refresh();
-		updateContextVariables();
-	}
-
-	function toggleSortingMode() {
-		sortByFile = !sortByFile;
-		treeDataProvider.setSortByFile(sortByFile);
-		treeDataProvider.refresh();
-		updateContextVariables();
-	}
-
-	/** Context variables back the `when` clauses of the view/title toggle buttons. */
-	function updateContextVariables() {
-		vscode.commands.executeCommand('setContext', 'groupByFile', groupByFile);
-		vscode.commands.executeCommand('setContext', 'sortByFile', sortByFile);
-	}
-
 	// One `kore-assistant.copy<Field>` command per copyable field: a context-menu entry can only pass the tree item,
 	// so the field has to be baked into the command id. package.json gates each entry on the item's contextValue.
 	const copyCommands = COPYABLE_FIELDS.map(field =>
@@ -82,10 +56,13 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 	);
 
 	let rescanTimeout: ReturnType<typeof setTimeout> | undefined;
+	// The `onDid*Files` events only cover user gestures; the watcher also sees a git checkout or a build regenerating sources.
+	const watcher = vscode.workspace.createFileSystemWatcher(KOTLIN_FILES_GLOB);
 
 	context.subscriptions.push(
-		treeView,
+		new KoreExplorer(context, scanWorkspaceFiles),
 		koreProjects,
+		watcher,
 		new KoreDiagnostics(koreElementManager),
 		datapackDecoration,
 		functionDecoration,
@@ -96,10 +73,6 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 				updateDecorations(vscode.window.activeTextEditor);
 			}
 		}),
-		vscode.commands.registerCommand('kore-assistant.toggleGrouping', toggleGroupingMode),
-		vscode.commands.registerCommand('kore-assistant.toggleGroupingByFile', toggleGroupingMode),
-		vscode.commands.registerCommand('kore-assistant.toggleSorting', toggleSortingMode),
-		vscode.commands.registerCommand('kore-assistant.toggleSortingByName', toggleSortingMode),
 		vscode.commands.registerCommand('kore-assistant.revealKoreElement', revealElement),
 		vscode.commands.registerCommand('kore-assistant.openDeclaration', openDeclaration),
 		...copyCommands,
@@ -117,11 +90,20 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 			clearTimeout(rescanTimeout);
 			rescanTimeout = setTimeout(() => updateDecorations(editor), RESCAN_DEBOUNCE_MS);
 		}),
-		vscode.workspace.onDidCreateFiles(event => scanFiles(event.files.filter(isKotlinFile))),
+		vscode.workspace.onDidCreateFiles(event => scanFiles(event.files.filter(isIndexedKotlinFile))),
 		vscode.workspace.onDidDeleteFiles(event => koreElementManager.removeElementsForUris(event.files)),
 		vscode.workspace.onDidRenameFiles(event => {
 			koreElementManager.removeElementsForUris(event.files.map(f => f.oldUri));
-			scanFiles(event.files.map(f => f.newUri).filter(isKotlinFile));
+			scanFiles(event.files.map(f => f.newUri).filter(isIndexedKotlinFile));
+		}),
+		watcher.onDidCreate(uri => scanFiles([uri].filter(isIndexedKotlinFile))),
+		watcher.onDidDelete(uri => koreElementManager.removeElementsForUris([uri])),
+		// A dirty editor already feeds the store from its buffer; reading the disk copy would override it with stale text.
+		watcher.onDidChange(uri => {
+			const open = vscode.workspace.textDocuments.find(document => document.uri.fsPath === uri.fsPath);
+			if (isIndexedKotlinFile(uri) && !open?.isDirty) {
+				scanFiles([uri]);
+			}
 		}),
 	);
 
@@ -141,16 +123,16 @@ function decorationTypeFor(element: ResolvedKoreElement): vscode.TextEditorDecor
 	return isFunctionKind(kindById(element.kindId)!) ? functionDecoration : jsonDecoration;
 }
 
-function isKotlinFile(uri: vscode.Uri): boolean {
-	return uri.path.endsWith('.kt');
+function isIndexedKotlinFile(uri: vscode.Uri): boolean {
+	return uri.path.endsWith('.kt') && !EXCLUDED_FOLDER.test(uri.fsPath);
 }
 
 /** Datapack roots and file nodes have no click action (clicking toggles them), so the menu offers the jump instead. */
 async function openDeclaration(item: KoreTreeItem) {
 	if (item.element) {
 		await revealElement(item.element);
-	} else if (item.fileData) {
-		await vscode.window.showTextDocument(vscode.Uri.file(item.fileData.filePath));
+	} else if (item.filePath) {
+		await vscode.window.showTextDocument(vscode.Uri.file(item.filePath));
 	}
 }
 
@@ -184,9 +166,15 @@ async function scanFiles(uris: readonly vscode.Uri[]) {
 	koreElementManager.replaceElementsForUris(entries);
 }
 
+/** Also drops files the store still holds but the workspace no longer has, which a refresh after an external delete relies on. */
 async function scanWorkspaceFiles() {
 	const files = await vscode.workspace.findFiles(KOTLIN_FILES_GLOB, KOTLIN_FILES_EXCLUDE);
 	outputChannel.appendLine(`Found ${files.length} Kotlin files`);
+	const found = new Set(files.map(file => file.fsPath));
+	const stale = [...koreElementManager.getFiles().keys()].filter(fsPath => !found.has(fsPath));
+	if (stale.length > 0) {
+		koreElementManager.removeElementsForUris(stale.map(fsPath => vscode.Uri.file(fsPath)));
+	}
 	await scanFiles(files);
 }
 
