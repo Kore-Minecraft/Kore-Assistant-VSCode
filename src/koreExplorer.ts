@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { koreElementManager, ResolvedKoreElement } from './koreElements';
-import { DEFAULT_VIEW_OPTIONS, KoreGroupBy, KoreSortBy, KoreTreeDataProvider, KoreTreeItem, KoreViewOptions } from './koreTreeView';
+import { DEFAULT_VIEW_OPTIONS, elementTooltip, KoreGroupBy, KoreSortBy, KoreTreeDataProvider, KoreTreeItem, KoreViewOptions } from './koreTreeView';
 
 const GROUPINGS: [KoreGroupBy, string, string][] = [
 	['output', 'Output Structure', 'datapack > namespace > resource folder, the generated layout'],
@@ -15,6 +15,22 @@ const SORTINGS: [KoreSortBy, string][] = [
 	['namespace', 'Namespace'],
 	['declaration', 'Declaration Order'],
 ];
+
+/** What the `editor/lineNumber/context` menu passes (1-based line, `Uri`), or a hover command link (uri as a string). */
+export interface RevealTarget {
+	lineNumber: number;
+	uri: vscode.Uri | string;
+}
+
+/** The hover of a gutter icon: the element tooltip plus a link selecting the element in the explorer. */
+export function gutterHover(element: ResolvedKoreElement): vscode.MarkdownString {
+	const target: RevealTarget = { lineNumber: element.range.start.line + 1, uri: element.uri.toString() };
+	const hover = elementTooltip(element);
+	hover.appendMarkdown(`  \n[$(list-tree) Reveal in Kore Explorer](command:kore-assistant.revealInExplorer?${encodeURIComponent(JSON.stringify(target))})`);
+	hover.isTrusted = { enabledCommands: ['kore-assistant.revealInExplorer'] };
+	hover.supportThemeIcons = true;
+	return hover;
+}
 
 /** Grouping, sorting and direction survive a reload; the filter is deliberately not persisted. */
 const STATE_KEY = 'kore-assistant.explorer';
@@ -38,7 +54,7 @@ export class KoreExplorer implements vscode.Disposable {
 			vscode.commands.registerCommand('kore-assistant.filter', () => this.editFilter()),
 			vscode.commands.registerCommand('kore-assistant.clearFilter', () => this.provider.setOptions({ filter: '' })),
 			vscode.commands.registerCommand('kore-assistant.refreshExplorer', () => this.rescan()),
-			vscode.commands.registerCommand('kore-assistant.revealInExplorer', () => this.revealActiveElement()),
+			vscode.commands.registerCommand('kore-assistant.revealInExplorer', (target?: RevealTarget) => this.revealActiveElement(target)),
 		];
 		this.updateViewState();
 	}
@@ -58,15 +74,19 @@ export class KoreExplorer implements vscode.Disposable {
 		}
 	}
 
-	/** The declaration on the cursor's line, else the innermost one whose body holds the cursor (a `dataPack { }` block). */
-	private async revealActiveElement(): Promise<void> {
+	/**
+	 * The declaration on the given line (a right-click on its gutter icon or the link in its hover), else on the cursor's
+	 * line, else the innermost one whose body holds the cursor (a `dataPack { }` block).
+	 */
+	private async revealActiveElement(target?: RevealTarget): Promise<void> {
 		const editor = vscode.window.activeTextEditor;
-		if (!editor) {
+		const uri = target ? (typeof target.uri === 'string' ? vscode.Uri.parse(target.uri) : target.uri) : editor?.document.uri;
+		if (!uri) {
 			return;
 		}
 
-		const cursor = editor.selection.active;
-		const elements = koreElementManager.getElementsForUri(editor.document.uri);
+		const cursor = target ? new vscode.Position(target.lineNumber - 1, 0) : editor!.selection.active;
+		const elements = koreElementManager.getElementsForUri(uri);
 		let element: ResolvedKoreElement | undefined = elements.find(e => e.range.start.line === cursor.line);
 		if (!element) {
 			for (const candidate of elements) {

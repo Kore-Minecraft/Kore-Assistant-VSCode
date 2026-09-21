@@ -172,6 +172,13 @@
           "group": "navigation@9"
         }
       ],
+      "editor/lineNumber/context": [
+        {
+          "command": "kore-assistant.revealInExplorer",
+          "when": "editorLangId == kotlin",
+          "group": "kore@1"
+        }
+      ],
       "view/title": [
         {
           "command": "kore-assistant.filter",

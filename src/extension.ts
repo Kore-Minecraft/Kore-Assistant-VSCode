@@ -2,9 +2,9 @@ import * as vscode from 'vscode';
 import { isFunctionKind, kindById } from './koreDeclarations';
 import { KoreDiagnostics } from './koreDiagnostics';
 import { koreElementManager, KoreElement, KoreFile, koreFileOf, parseKoreFile, RESCAN_DEBOUNCE_MS, ResolvedKoreElement } from './koreElements';
-import { KoreExplorer } from './koreExplorer';
+import { gutterHover, KoreExplorer } from './koreExplorer';
 import { KoreProjectService } from './koreProject';
-import { CopyableField, elementTooltip, KoreTreeItem } from './koreTreeView';
+import { CopyableField, KoreTreeItem } from './koreTreeView';
 
 const KOTLIN_FILES_GLOB = '**/*.kt';
 /** Gradle/IDE output folders can hold generated Kotlin that would show up as duplicates in the tree. */
@@ -193,7 +193,7 @@ function updateDecorations(editor: vscode.TextEditor) {
 	]);
 
 	for (const element of koreElementManager.getElementsForUri(document.uri)) {
-		optionsByDecoration.get(decorationTypeFor(element))!.push({ range: element.range, hoverMessage: elementTooltip(element) });
+		optionsByDecoration.get(decorationTypeFor(element))!.push({ range: element.range, hoverMessage: gutterHover(element) });
 	}
 
 	for (const [decorationType, options] of optionsByDecoration) {
