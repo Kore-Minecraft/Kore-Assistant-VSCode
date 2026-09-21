@@ -2,7 +2,7 @@
   "name": "kore-assistant",
   "displayName": "Kore Assistant",
   "description": "An assistant that gives you powerful tools when working with Kore.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "Ayfri",
   "icon": "dist/assets/kore.png",
   "license": "GPL-3.0",
