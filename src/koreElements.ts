@@ -26,7 +26,7 @@ export interface ResolvedKoreElement extends KoreElement {
 }
 
 function resolveElement(element: KoreElement, soleDataPack: string | undefined): ResolvedKoreElement {
-	const resolvedDataPackName = element.dataPackName ?? soleDataPack ?? UNKNOWN_DATA_PACK;
+	const resolvedDataPackName = element.kindId === 'DATA_PACK' ? element.name : element.dataPackName ?? soleDataPack ?? UNKNOWN_DATA_PACK;
 	const resolvedNamespace = element.namespace ?? resolvedDataPackName;
 
 	const kind = kindById(element.kindId);
