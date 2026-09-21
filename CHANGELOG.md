@@ -7,33 +7,35 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 ### Added
-- Context menu on every Explorer node: copy the name, namespace, resource location, output path, command, file path or `file:line` declaration path of a declaration, the `pack.mcmeta` path and source of a datapack, the output folder of a category or path group, and the path of a file
-- "Go to Declaration" on datapack roots and file nodes, which have no click action
-- Names, namespaces, directories and datapack names given as a `val` constant (`dataPack(NAMESPACE)`, `Constants.NAMESPACE`), a string template (`"blocks/$leafId"`) or a concatenation (`"blocks/" + LEAF + "_log"`) resolve through the workspace's `val` bindings, following `val A = B` and template chains up to 8 hops, the closest in-scope local first, then the file-level one, then a workspace-wide unique one
-- Declarations inside a datapack helper (`fun DataPack.xxx()`, `fun xxx(dp: DataPack)` or `context(dp: DataPack) fun xxx()`) belong to the datapack whose `dataPack { }` block calls the helper, following calls through other helpers and across files; a same-file function of the same name shadows the lookup like in Kotlin
-- Helpers no datapack calls fall back to the datapack declared in the closest folder, which keeps each project of a multi-project workspace (the Kore `Examples` repo) under its own pack
-- Duplicate declaration warning: two declarations of one datapack writing the same output file are flagged on both sides, with links to each other, since the last one generated silently overwrites the others
-- Unresolved function command error: a `function("helper")` command inside a function body whose target is declared nowhere in the project, with quick fixes to rename it to a close match, call it under the namespace that declares it, swap inverted `namespace, name` arguments, or create the missing function after the caller
-- `craftingShaped` checks: at most 3 rows of at most 3 characters, every row as wide as the first, no empty row, every pattern character mapped by a `key` / `keys` entry, single-character non-space keys, and unused keys greyed out
-- `kore-assistant.diagnostics.enabled` setting to turn the checks off
+
+**Explorer**
+- Four groupings: Output Structure (datapack > namespace > resource folder > path folders, the generated layout), Kind (datapack > kind > path folders), Source File and Flat List
+- Sorting by name, kind, namespace or declaration order, in either direction (pick the active criterion again to flip it)
+- Filter on name, namespace or output path, with the match count above the tree and on the view badge
+- Element counts on every container row, a `~` marker on names built at runtime, and a hover on every container row listing its output folder, elements, namespaces, kinds, folders and files
+- Context menu on every row: copy the name, namespace, resource location, output path, command, file path or `file:line` declaration path; container rows also copy every resource location or output path underneath, one per line; "Go to Declaration" on datapack and file rows
+- "Reveal in Kore Explorer" from the editor context menu, the gutter right-click menu and a link in the gutter hover
+- Refresh button, and a file watcher picking up Kotlin files changed outside VS Code (git checkout, generated sources)
+- Grouping and sorting are remembered per workspace, collapsed rows stay collapsed across refreshes
+- A function's `directory` argument is a folder in the tree, like on disk
+
+**Resolution**
+- Names, namespaces, directories and datapack names given as a `val` constant, a string template or a concatenation resolve through the workspace's `val` bindings (`val A = B` chains up to 8 hops, closest scope first)
+- Declarations inside a helper (`fun DataPack.xxx()`, `fun xxx(dp: DataPack)`, `context(dp: DataPack) fun xxx()`) belong to the datapack whose block calls it, across helpers and files; uncalled helpers fall back to the datapack declared in the closest folder
+- The `function` command is recognized under an import alias (`import ...commands.function as callFunction`)
+
+**Diagnostics** (`kore-assistant.diagnostics.enabled` turns them off)
+- Duplicate declarations writing the same output file, flagged on both sides with links to each other
+- Unresolved `function("helper")` commands, with quick fixes: rename to a close match, use the declaring namespace, swap inverted `namespace, name` arguments, or create the missing function
+- `craftingShaped` grids: size, row width, empty rows, unmapped pattern characters, invalid keys, unused keys greyed out
+
+**Project**
 - Kore project detection from `build.gradle(.kts)`, `pom.xml` and `libs.versions.toml` (Kore version, Gradle plugin applied), logged in the output channel
-- Explorer groupings: "Output Structure" (datapack > namespace > resource folder > path folders, the generated layout, where the 20 recipe kinds collapse into one `recipe` folder) and "Flat List", next to the existing kind and source file views
-- A function's `directory` argument (`function("on_death", directory = "hearts")`) is a folder in the explorer, and the full `hearts/on_death` path shows in the file and flat views
-- The gutter hover ends with a "Reveal in Kore Explorer" link, and the gutter/line-number right-click menu offers the same for the clicked line
-- The `function` command is recognized under an import alias (`import io.github.ayfri.kore.commands.function as callFunction`)
-- Explorer sorting by name, kind, namespace or declaration order; picking the active criterion again flips the direction
-- Explorer filter matching the name, namespace or output path of every declaration, with the match count shown above the tree and on the view badge
-- Element counts on datapack, namespace, folder, category, path group and file rows, a `~` marker on declarations whose name is built at runtime, and a hover on every container row listing its output folder, elements, namespaces, kinds, folders or files
-- "Copy All Resource Locations" and "Copy All Output Paths" on container rows, one value per line
-- "Kore: Reveal in Kore Explorer" in the Kotlin editor context menu, selecting the declaration under the cursor in the tree
-- Refresh button rescanning the workspace, and a file watcher picking up Kotlin files changed outside VS Code (git checkout, generated sources)
-- Grouping and sorting choices are remembered per workspace, and collapsed rows stay collapsed across refreshes
 
 ### Changed
-- Grouping and sorting are picked from two quick picks instead of toggle buttons
-- Declarations grouped by file or listed flat show their full name rather than the last path segment
-- Explorer tooltips are Markdown, with every value rendered as code, and match the editor hover
-- Copy entries are direct menu items instead of the "Copy..." picker
+- Grouping and sorting are picked from two quick picks instead of toggle buttons; copy entries are direct menu items instead of the "Copy..." picker
+- Explorer tooltips are Markdown, with values rendered as code, and match the editor hover
+- Declarations grouped by file or listed flat show their full path rather than the last segment
 - A trailing comment after a name argument or a `namespace = "..."` statement no longer makes the value dynamic
 
 ### Removed
