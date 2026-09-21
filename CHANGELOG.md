@@ -9,13 +9,17 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ### Added
 - Context menu on every Explorer node: copy the name, namespace, resource location, output path, command, file path or `file:line` declaration path of a declaration, the `pack.mcmeta` path and source of a datapack, the output folder of a category or path group, and the path of a file
 - "Go to Declaration" on datapack roots and file nodes, which have no click action
-- Names, namespaces, directories and datapack names given as a `val` constant (`dataPack(NAMESPACE)`) or a string template of constants (`"blocks/$leafId"`) resolve through the workspace's `val X = "..."` bindings, in the same file first
-- Declarations inside a `fun DataPack.xxx()` helper belong to the datapack whose `dataPack { }` block calls the helper, following calls through other helpers and across files; a same-file function of the same name shadows the lookup like in Kotlin
+- Names, namespaces, directories and datapack names given as a `val` constant (`dataPack(NAMESPACE)`, `Constants.NAMESPACE`), a string template (`"blocks/$leafId"`) or a concatenation (`"blocks/" + LEAF + "_log"`) resolve through the workspace's `val` bindings, following `val A = B` and template chains up to 8 hops, the closest in-scope local first, then the file-level one, then a workspace-wide unique one
+- Declarations inside a datapack helper (`fun DataPack.xxx()`, `fun xxx(dp: DataPack)` or `context(dp: DataPack) fun xxx()`) belong to the datapack whose `dataPack { }` block calls the helper, following calls through other helpers and across files; a same-file function of the same name shadows the lookup like in Kotlin
 - Helpers no datapack calls fall back to the datapack declared in the closest folder, which keeps each project of a multi-project workspace (the Kore `Examples` repo) under its own pack
 
 ### Changed
 - Explorer tooltips are Markdown, with every value rendered as code, and match the editor hover
 - Copy entries are direct menu items instead of the "Copy..." picker
+- A trailing comment after a name argument or a `namespace = "..."` statement no longer makes the value dynamic
+
+### Removed
+- The "Kore: Test Extension" placeholder command
 
 ## [0.3.0] - 2026-09-21
 
