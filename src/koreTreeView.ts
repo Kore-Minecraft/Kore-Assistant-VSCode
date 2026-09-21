@@ -275,45 +275,23 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 		return kind ? displayNameFor(kind) : kindId;
 	}
 
-	// Generic sorting function that handles both name and file based sorting
+	// Groups first, then (when sorting by file) the file description, then kind, then name.
 	private sortItems(items: KoreTreeItem[]): KoreTreeItem[] {
-		if (this._sortByFile) {
-			// Sort by file first, then by kind, then by name
-			return items.sort((a, b) => {
-				// Always put groups/folders first
-				if (a.contextValue === 'group' && b.contextValue !== 'group') {return -1;}
-				if (a.contextValue !== 'group' && b.contextValue === 'group') {return 1;}
+		return items.sort((a, b) => {
+			if (a.contextValue === 'group' && b.contextValue !== 'group') {return -1;}
+			if (a.contextValue !== 'group' && b.contextValue === 'group') {return 1;}
 
-				// If both items have a description (file path)
-				if (a.description && b.description) {
-					const fileCompare = a.description.toString().localeCompare(b.description.toString());
-					if (fileCompare !== 0) {return fileCompare;}
-				}
+			if (this._sortByFile && a.description && b.description) {
+				const fileCompare = a.description.toString().localeCompare(b.description.toString());
+				if (fileCompare !== 0) {return fileCompare;}
+			}
 
-				// If same file or no file, sort by kind
-				if (a.kindId !== b.kindId) {
-					return this.kindSortKey(a.kindId).localeCompare(this.kindSortKey(b.kindId));
-				}
+			if (a.kindId !== b.kindId) {
+				return this.kindSortKey(a.kindId).localeCompare(this.kindSortKey(b.kindId));
+			}
 
-				// If same kind, sort by name
-				return a.label!.toString().localeCompare(b.label!.toString());
-			});
-		} else {
-			// Sort by name only
-			return items.sort((a, b) => {
-				// Always put groups/folders first
-				if (a.contextValue === 'group' && b.contextValue !== 'group') {return -1;}
-				if (a.contextValue !== 'group' && b.contextValue === 'group') {return 1;}
-
-				// Sort by kind
-				if (a.kindId !== b.kindId) {
-					return this.kindSortKey(a.kindId).localeCompare(this.kindSortKey(b.kindId));
-				}
-
-				// Finally, sort by name
-				return a.label!.toString().localeCompare(b.label!.toString());
-			});
-		}
+			return a.label!.toString().localeCompare(b.label!.toString());
+		});
 	}
 
 	private createTreeItemFromElement(element: ResolvedKoreElement): KoreTreeItem {
