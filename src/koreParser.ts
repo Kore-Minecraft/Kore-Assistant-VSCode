@@ -26,6 +26,8 @@ const FUN_KEYWORD = 'fun';
 const VAL_KEYWORD = 'val';
 
 const NAMESPACE_STATEMENT_PATTERN = /^namespace\s*=(?!=)\s*([\s\S]+)$/;
+/** `import io.github.ayfri.kore.commands.function as callFunction`: the command called under another name in this file. */
+const FUNCTION_COMMAND_ALIAS_PATTERN = /^[ \t]*import\s+io\.github\.ayfri\.kore\.commands\.function\s+as\s+([A-Za-z_][A-Za-z0-9_]*)/m;
 const NAMED_ARG_PATTERN = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*=(?!=)\s*([\s\S]*)$/;
 /** `fun DataPack.setup(` or `fun <T> DataPack.setup(`: the receiver form of a datapack extension function. */
 const DATA_PACK_RECEIVER_PATTERN = /^fun\s+(?:<[^>]*>\s*)?(?:[A-Za-z_][A-Za-z0-9_.]*\.)?DataPack\.[A-Za-z_][A-Za-z0-9_]*\s*\(/;
@@ -188,6 +190,7 @@ export function parseKotlinFile(text: string): ParsedKotlinFile {
 	};
 	const stack: GroupFrame[] = [];
 	const len = text.length;
+	const commandAlias = FUNCTION_COMMAND_ALIAS_PATTERN.exec(text)?.[1];
 	let i = 0;
 	let declaringFunction = false;
 	let pendingDataPackExtension = false;
@@ -331,7 +334,7 @@ export function parseKotlinFile(text: string): ParsedKotlinFile {
 				if (decl) {
 					parsed.declarations.push(decl);
 				}
-			} else if (frame.calleeName === FUNCTION_BUILDER_NAME && !frame.receiverName) {
+			} else if ((frame.calleeName === FUNCTION_BUILDER_NAME || frame.calleeName === commandAlias) && !frame.receiverName) {
 				const enclosing = nearestDeclarationFrame(stack);
 				if (enclosing?.declarationKind && isFunctionKind(enclosing.declarationKind)) {
 					const command = functionCommandOf(parseArgs(argsText, frame.argStart), frame.identStart, { start: frame.argStart, end: argsEnd }, enclosing.callOffset);

@@ -468,6 +468,15 @@ suite('koreParser', () => {
 			assert.strictEqual(src.slice(functionCommands[1].nameArgRange.start, functionCommands[1].nameArgRange.end), '"b"');
 		});
 
+		test('an aliased import of the command is recognized under its alias', () => {
+			const src = `import io.github.ayfri.kore.commands.function as callFunction
+				function("main") {
+					callFunction(NAMESPACE, "hearts/apply_health", arguments = storage(STORAGE, NAMESPACE))
+				}`;
+			const { functionCommands } = parseKotlinFile(src);
+			assert.deepStrictEqual(functionCommands.map(c => [c.name, c.namespace, c.namespaceFirst]), [['hearts/apply_health', 'NAMESPACE', true]]);
+		});
+
 		test('two positional strings mean namespace first, named arguments are unambiguous', () => {
 			const src = `function("main") {
 				function("ns", "a")
