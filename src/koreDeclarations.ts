@@ -14,10 +14,10 @@ export interface KoreScope {
 }
 
 export interface KoreDeclarationKind {
-	/** Stable id, `<TYPE>_<FAMILY>` for scoped builders (e.g. `ORE_FEATURE`, `CRAFTING_SHAPED`, `BLOCK_TAG`). */
-	id: string;
 	/** The callee identifier the parser looks for, e.g. `craftingShaped` in `craftingShaped("x") { }`. */
 	builderName: string;
+	/** Stable id, `<TYPE>_<FAMILY>` for scoped builders (e.g. `ORE_FEATURE`, `CRAFTING_SHAPED`, `BLOCK_TAG`). */
+	id: string;
 	/** Folder under `data/<namespace>/` the resource is written to. `undefined` only for `DATA_PACK`. */
 	resourceFolder?: string;
 	/**
@@ -308,12 +308,13 @@ export const DATA_PACK_KIND = KORE_DECLARATION_KINDS.find(k => k.id === 'DATA_PA
 
 const kindsByBuilderName = Map.groupBy(KORE_DECLARATION_KINDS, kind => kind.builderName);
 const kindsById = new Map(KORE_DECLARATION_KINDS.map(kind => [kind.id, kind]));
+const NO_SCOPES: ReadonlySet<KoreScope> = new Set();
 
 /**
  * Resolves a callee to its kind. `noise` or `function` exist both as a top-level builder and inside a scope, so the
  * enclosing scopes decide: a scoped kind wins when its scope is active, otherwise the unscoped kind (if any).
  */
-export function kindByBuilderName(builderName: string, activeScopes: ReadonlySet<KoreScope> = new Set()): KoreDeclarationKind | undefined {
+export function kindByBuilderName(builderName: string, activeScopes: ReadonlySet<KoreScope> = NO_SCOPES): KoreDeclarationKind | undefined {
 	const candidates = kindsByBuilderName.get(builderName);
 	if (!candidates) {
 		return undefined;
@@ -343,10 +344,10 @@ function withTrailingSlash(value: string): string {
 }
 
 export interface KoreElementPathParts {
+	directory?: string;
 	kind: KoreDeclarationKind;
 	name: string;
 	namespace: string;
-	directory?: string;
 }
 
 /** Where Kore will write this element, relative to the datapack folder. Mirrors `Generator.getPathFromDataDir`. */
