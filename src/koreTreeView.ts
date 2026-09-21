@@ -48,6 +48,8 @@ interface KoreTreeItemOptions {
 	elements: ResolvedKoreElement[];
 	extensionUri?: vscode.Uri;
 	filePath?: string;
+	/** The `data/<namespace>/<folder>` a category, folder or path group writes under. */
+	folder?: string;
 	groupData?: {
 		pathPrefix: string;
 	};
@@ -82,7 +84,7 @@ function kindSortKey(kindId: string): string {
 
 type ElementComparator = (a: ResolvedKoreElement, b: ResolvedKoreElement) => number;
 
-const byName: ElementComparator = (a, b) => COLLATOR.compare(a.name, b.name) || COLLATOR.compare(path.basename(a.uri.fsPath), path.basename(b.uri.fsPath));
+const byName: ElementComparator = (a, b) => COLLATOR.compare(resourcePathOf(a), resourcePathOf(b)) || COLLATOR.compare(path.basename(a.uri.fsPath), path.basename(b.uri.fsPath));
 
 /** Same criteria as the IntelliJ tool window; declaration order compares positions so two declarations on one line keep their source order. */
 const COMPARATORS: Record<KoreSortBy, ElementComparator> = {
@@ -91,6 +93,12 @@ const COMPARATORS: Record<KoreSortBy, ElementComparator> = {
 	namespace: (a, b) => COLLATOR.compare(a.resolvedNamespace, b.resolvedNamespace) || byName(a, b),
 	declaration: (a, b) => COLLATOR.compare(a.uri.fsPath, b.uri.fsPath) || a.range.start.compareTo(b.range.start),
 };
+
+/** The leaf's path inside its resource folder: a function's `directory` is a folder too, so `function("on_death", directory = "hearts")` sits under `hearts/`. */
+function resourcePathOf(element: ResolvedKoreElement): string {
+	const directory = element.directory?.replace(/\/+$/, '');
+	return directory ? `${directory}/${element.name}` : element.name;
+}
 
 function matches(element: ResolvedKoreElement, filter: string): boolean {
 	return element.name.toLowerCase().includes(filter) || element.resolvedNamespace.toLowerCase().includes(filter) || element.outputPath.toLowerCase().includes(filter);
@@ -127,6 +135,7 @@ function listed(values: (string | undefined)[]): string {
 /** The hover of a container row: what it writes, how many elements it holds and what they are made of. */
 function containerTooltip(options: KoreTreeItemOptions, values: CopyableValues): vscode.MarkdownString {
 	const { elements, label } = options;
+	const kind = kindById(options.kindId);
 	const count = `Elements: ${elements.length}`;
 	const kinds = `Kinds: ${listed(elements.map(e => displayNameFor(kindById(e.kindId)!)))}`;
 	const files = `Files: ${listed(elements.map(e => path.basename(e.uri.fsPath)))}`;
@@ -155,7 +164,7 @@ function containerTooltip(options: KoreTreeItemOptions, values: CopyableValues):
 			lines = [`**${label}** declarations of \`${options.dataPackName}\``, ...output, count, files];
 			break;
 		case 'group':
-			lines = [`**${displayNameFor(kindById(options.kindId)!)}** \`${options.groupData!.pathPrefix}\``, ...output, count, files];
+			lines = [`**${kind ? displayNameFor(kind) : 'Folder'}** \`${options.groupData!.pathPrefix}\``, ...output, count, ...(kind ? [] : [kinds]), files];
 			break;
 		default:
 			lines = [`**File** \`${label}\``, `Path: \`${options.filePath}\``, count, `Data Packs: ${listed(elements.map(e => e.resolvedDataPackName))}`, kinds];
@@ -232,6 +241,8 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			collapsibleState: vscode.TreeItemCollapsibleState.Expanded,
 			dataPackName: parent.dataPackName,
 			elements,
+			folder: kindById(kindId)!.resourceFolder,
+			namespace: parent.dataPackName,
 			parent,
 		}));
 		return items.sort((a, b) => COLLATOR.compare(kindSortKey(a.kindId), kindSortKey(b.kindId)));
@@ -246,10 +257,10 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			case 'namespace':
 				return this.folderItems(parent);
 			case 'category':
+			case 'folder':
 				return this.pathItems(parent, '');
 			case 'group':
 				return this.pathItems(parent, `${parent.groupData!.pathPrefix}/`);
-			case 'folder':
 			case 'file':
 				return this.leaves(parent.elements, parent);
 			default:
@@ -339,6 +350,7 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			collapsibleState: vscode.TreeItemCollapsibleState.Expanded,
 			dataPackName: parent.dataPackName,
 			elements,
+			folder,
 			namespace: parent.namespace,
 			parent,
 		}));
@@ -346,7 +358,7 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 
 	private leafItem(element: ResolvedKoreElement, parent: KoreTreeItem | undefined, shortLabel: boolean): KoreTreeItem {
 		return new KoreTreeItem({
-			label: shortLabel ? element.name.slice(element.name.lastIndexOf('/') + 1) : element.name,
+			label: shortLabel ? element.name.slice(element.name.lastIndexOf('/') + 1) : resourcePathOf(element),
 			type: 'element',
 			kindId: element.kindId,
 			id: `element:${element.uri.fsPath}:${element.range.start.line}:${element.range.start.character}`,
@@ -381,8 +393,9 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 	/** Splits the parent's elements on the path segment following `prefix`: a group row per segment, a leaf per direct element. */
 	private pathItems(parent: KoreTreeItem, prefix: string): KoreTreeItem[] {
 		const groups = Map.groupBy(parent.elements, element => {
-			const nextSlash = element.name.indexOf('/', prefix.length);
-			return nextSlash === -1 ? '' : element.name.slice(prefix.length, nextSlash);
+			const resourcePath = resourcePathOf(element);
+			const nextSlash = resourcePath.indexOf('/', prefix.length);
+			return nextSlash === -1 ? '' : resourcePath.slice(prefix.length, nextSlash);
 		});
 
 		const items = (groups.get('') ?? []).map(element => this.leafItem(element, parent, true));
@@ -396,7 +409,9 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 					collapsibleState: vscode.TreeItemCollapsibleState.Expanded,
 					dataPackName: parent.dataPackName,
 					elements,
+					folder: parent.folder,
 					groupData: { pathPrefix: prefix + segment },
+					namespace: parent.namespace,
 					parent,
 				}));
 			}
@@ -456,9 +471,10 @@ function bulkValues(elements: ResolvedKoreElement[]): CopyableValues {
  * they map to, and every container copies the locations and paths of its whole subtree.
  */
 function copyableValues(options: KoreTreeItemOptions): CopyableValues {
-	const { type, element, dataPackName, groupData, elements } = options;
-	const kind = kindById(options.kindId);
-	const namespace = dataPackName !== UNKNOWN_DATA_PACK ? dataPackName : undefined;
+	const { type, element, groupData, elements } = options;
+	// Rows under a namespace row carry it; datapack and kind-view rows stand for the datapack's own namespace.
+	const owner = options.namespace ?? options.dataPackName;
+	const namespace = owner !== UNKNOWN_DATA_PACK ? owner : undefined;
 	const bulk = type === 'element' ? {} : bulkValues(elements);
 
 	switch (type) {
@@ -481,28 +497,14 @@ function copyableValues(options: KoreTreeItemOptions): CopyableValues {
 				namespace,
 				outputPath: namespace && outputPathFor({ kind: DATA_PACK_KIND, name: namespace, namespace }),
 			};
-		case 'namespace': {
-			const own = options.namespace !== UNKNOWN_DATA_PACK ? options.namespace : undefined;
-			return { ...bulk, name: own, namespace: own, outputPath: own && `data/${own}` };
-		}
-		case 'folder': {
-			const own = options.namespace !== UNKNOWN_DATA_PACK ? options.namespace : undefined;
-			return { ...bulk, name: options.label, namespace: own, outputPath: own && `data/${own}/${options.label}` };
-		}
+		case 'namespace':
+			return { ...bulk, name: namespace, namespace, outputPath: namespace && `data/${namespace}` };
+		case 'folder':
+			return { ...bulk, name: options.label, namespace, outputPath: namespace && `data/${namespace}/${options.folder}` };
 		case 'category':
-			return {
-				...bulk,
-				name: options.label,
-				namespace,
-				outputPath: namespace && kind && `data/${namespace}/${kind.resourceFolder}`,
-			};
+			return { ...bulk, name: options.label, namespace, outputPath: namespace && `data/${namespace}/${options.folder}` };
 		case 'group':
-			return {
-				...bulk,
-				name: groupData!.pathPrefix,
-				namespace,
-				outputPath: namespace && kind && `data/${namespace}/${kind.resourceFolder}/${groupData!.pathPrefix}`,
-			};
+			return { ...bulk, name: groupData!.pathPrefix, namespace, outputPath: namespace && `data/${namespace}/${options.folder}/${groupData!.pathPrefix}` };
 		case 'file':
 			return {
 				...bulk,
@@ -522,6 +524,7 @@ export class KoreTreeItem extends vscode.TreeItem {
 	public readonly element?: ResolvedKoreElement;
 	public readonly elements: ResolvedKoreElement[];
 	public readonly filePath?: string;
+	public readonly folder?: string;
 	public readonly groupData?: KoreTreeItemOptions['groupData'];
 	public readonly id: string;
 	public readonly kindId: string;
@@ -538,6 +541,7 @@ export class KoreTreeItem extends vscode.TreeItem {
 		this.element = options.element;
 		this.elements = options.elements;
 		this.filePath = options.filePath;
+		this.folder = options.folder;
 		this.groupData = options.groupData;
 		this.id = options.id;
 		this.kindId = options.kindId;

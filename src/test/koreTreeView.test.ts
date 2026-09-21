@@ -105,6 +105,25 @@ suite('KoreTreeDataProvider', () => {
 			assert.strictEqual(provider.getParent(deep[0]), dir[0]);
 		});
 
+		test('a function directory is a folder, mixing with slash-separated names, and the full path shows outside the kind view', async () => {
+			seed([fileA, [
+				element(fileA, 'FUNCTION', 'on_death', 0, { dataPackName: 'p', directory: 'hearts' }),
+				element(fileA, 'FUNCTION', 'hearts/on_kill', 1, { dataPackName: 'p' }),
+				element(fileA, 'FUNCTION', 'sync', 2, { dataPackName: 'p', directory: 'player/' }),
+			]]);
+
+			const [root] = await provider.getChildren();
+			const [category] = await provider.getChildren(root);
+			const folders = await provider.getChildren(category);
+			assert.deepStrictEqual(labels(folders), ['hearts', 'player']);
+			assert.deepStrictEqual(labels(await provider.getChildren(folders[0])), ['on_death', 'on_kill']);
+			assert.deepStrictEqual(labels(await provider.getChildren(folders[1])), ['sync']);
+			assert.deepStrictEqual(folders[0].values.outputPath, 'data/p/function/hearts');
+
+			provider.setOptions({ groupBy: 'flat' });
+			assert.deepStrictEqual(labels(await provider.getChildren()), ['hearts/on_death', 'hearts/on_kill', 'player/sync']);
+		});
+
 		test('a group named like a prefix of another does not swallow its elements', async () => {
 			seed([fileA, [
 				element(fileA, 'FUNCTION', 'ab/x', 0, { dataPackName: 'p' }),
@@ -141,9 +160,27 @@ suite('KoreTreeDataProvider', () => {
 			assert.deepStrictEqual(folders.map(f => f.description), ['2', '1']);
 			assert.deepStrictEqual(labels(await provider.getChildren(folders[0])), ['r1', 'r2']);
 
-			const [fn] = await provider.getChildren((await provider.getChildren(namespaces[0]))[0]);
-			assert.strictEqual(fn.label, 'dir/leaf');
-			assert.strictEqual(fn.type, 'element');
+			const [fnFolder] = await provider.getChildren(namespaces[0]);
+			const [dir] = await provider.getChildren(fnFolder);
+			assert.deepStrictEqual([dir.type, dir.label, dir.values.outputPath], ['group', 'dir', 'data/other/function/dir']);
+			assert.strictEqual(tooltipOf(dir), '**Folder** `dir`  \nOutput Path: `data/other/function/dir/`  \nElements: 1  \nKinds: `Function`  \nFiles: `A.kt`');
+			const [fn] = await provider.getChildren(dir);
+			assert.deepStrictEqual([fn.type, fn.label, provider.getParent(fn)], ['element', 'leaf', dir]);
+		});
+
+		test('a function directory nests under function/ like on disk', async () => {
+			seed([fileA, [
+				element(fileA, 'FUNCTION', 'on_death', 0, { dataPackName: 'p', directory: 'hearts' }),
+				element(fileA, 'ADVANCEMENT', 'kill', 1, { dataPackName: 'p' }),
+			]]);
+
+			const [root] = await provider.getChildren();
+			const [namespace] = await provider.getChildren(root);
+			const [advancement, fn] = await provider.getChildren(namespace);
+			assert.deepStrictEqual(labels(await provider.getChildren(advancement)), ['kill']);
+			const [hearts] = await provider.getChildren(fn);
+			assert.deepStrictEqual([hearts.type, hearts.label], ['group', 'hearts']);
+			assert.deepStrictEqual(labels(await provider.getChildren(hearts)), ['on_death']);
 		});
 
 		test('namespace and folder rows copy their output folder and everything underneath', async () => {
@@ -328,10 +365,11 @@ suite('KoreTreeDataProvider', () => {
 
 			const [root] = await provider.getChildren();
 			const [category] = await provider.getChildren(root);
-			const [group] = await provider.getChildren(category);
+			const [sub] = await provider.getChildren(category);
+			const [group] = await provider.getChildren(sub);
 			const [item] = await provider.getChildren(group);
 
-			assert.strictEqual(item.label, 'main');
+			assert.deepStrictEqual([sub.label, group.label, item.label], ['sub', 'dir', 'main']);
 			assert.strictEqual(item.description, 'A.kt (5)');
 			assert.strictEqual(item.id, `element:${fileA.fsPath}:4:0`);
 			assert.strictEqual(item.command?.command, 'kore-assistant.revealKoreElement');
@@ -476,7 +514,7 @@ suite('KoreTreeDataProvider', () => {
 					chain.unshift(node.type);
 				}
 				assert.deepStrictEqual(chain, {
-					output: ['datapack', 'namespace', 'folder', 'element'],
+					output: ['datapack', 'namespace', 'folder', 'group', 'element'],
 					kind: ['datapack', 'category', 'group', 'element'],
 					file: ['file', 'element'],
 					flat: ['element'],
