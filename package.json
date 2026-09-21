@@ -50,8 +50,36 @@
         "title": "Kore: Reveal Element"
       },
       {
-        "command": "kore-assistant.copyValue",
-        "title": "Copy..."
+        "command": "kore-assistant.openDeclaration",
+        "title": "Go to Declaration"
+      },
+      {
+        "command": "kore-assistant.copyName",
+        "title": "Copy Name"
+      },
+      {
+        "command": "kore-assistant.copyNamespace",
+        "title": "Copy Namespace"
+      },
+      {
+        "command": "kore-assistant.copyResourceLocation",
+        "title": "Copy Resource Location"
+      },
+      {
+        "command": "kore-assistant.copyOutputPath",
+        "title": "Copy Output Path"
+      },
+      {
+        "command": "kore-assistant.copyCommand",
+        "title": "Copy Command"
+      },
+      {
+        "command": "kore-assistant.copyFilePath",
+        "title": "Copy File Path"
+      },
+      {
+        "command": "kore-assistant.copyDeclarationPath",
+        "title": "Copy Declaration Path"
       },
       {
         "command": "kore-assistant.toggleGrouping",
@@ -103,6 +131,17 @@
       ]
     },
     "menus": {
+      "commandPalette": [
+        { "command": "kore-assistant.revealKoreElement", "when": "false" },
+        { "command": "kore-assistant.openDeclaration", "when": "false" },
+        { "command": "kore-assistant.copyName", "when": "false" },
+        { "command": "kore-assistant.copyNamespace", "when": "false" },
+        { "command": "kore-assistant.copyResourceLocation", "when": "false" },
+        { "command": "kore-assistant.copyOutputPath", "when": "false" },
+        { "command": "kore-assistant.copyCommand", "when": "false" },
+        { "command": "kore-assistant.copyFilePath", "when": "false" },
+        { "command": "kore-assistant.copyDeclarationPath", "when": "false" }
+      ],
       "view/title": [
         {
           "command": "kore-assistant.toggleGrouping",
@@ -127,9 +166,44 @@
       ],
       "view/item/context": [
         {
-          "command": "kore-assistant.copyValue",
-          "when": "view == koreExplorer && viewItem == element",
+          "command": "kore-assistant.openDeclaration",
+          "when": "view == koreExplorer && viewItem =~ /^(datapack|file) .*\\bdeclarationPath\\b/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kore-assistant.copyName",
+          "when": "view == koreExplorer && viewItem =~ /\\bname\\b/",
           "group": "kore@1"
+        },
+        {
+          "command": "kore-assistant.copyNamespace",
+          "when": "view == koreExplorer && viewItem =~ /\\bnamespace\\b/",
+          "group": "kore@2"
+        },
+        {
+          "command": "kore-assistant.copyResourceLocation",
+          "when": "view == koreExplorer && viewItem =~ /\\bresourceLocation\\b/",
+          "group": "kore@3"
+        },
+        {
+          "command": "kore-assistant.copyOutputPath",
+          "when": "view == koreExplorer && viewItem =~ /\\boutputPath\\b/",
+          "group": "kore@4"
+        },
+        {
+          "command": "kore-assistant.copyCommand",
+          "when": "view == koreExplorer && viewItem =~ /\\bcommand\\b/",
+          "group": "kore@5"
+        },
+        {
+          "command": "kore-assistant.copyFilePath",
+          "when": "view == koreExplorer && viewItem =~ /\\bfilePath\\b/",
+          "group": "source@1"
+        },
+        {
+          "command": "kore-assistant.copyDeclarationPath",
+          "when": "view == koreExplorer && viewItem =~ /\\bdeclarationPath\\b/",
+          "group": "source@2"
         }
       ]
     }

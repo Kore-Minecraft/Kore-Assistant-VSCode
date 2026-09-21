@@ -1,7 +1,48 @@
 import * as vscode from 'vscode';
-import { displayNameFor, isFunctionKind, kindById } from './koreDeclarations';
+import { DATA_PACK_KIND, displayNameFor, isFunctionKind, kindById, outputPathFor } from './koreDeclarations';
 import { koreElementManager, ResolvedKoreElement, UNKNOWN_DATA_PACK } from './koreElements';
 import * as path from 'node:path';
+
+/** Every value a tree item can put on the clipboard, one "Copy <Field>" context-menu entry per key. */
+export interface CopyableValues {
+	name?: string;
+	namespace?: string;
+	resourceLocation?: string;
+	outputPath?: string;
+	command?: string;
+	filePath?: string;
+	declarationPath?: string;
+}
+
+export type CopyableField = keyof CopyableValues;
+
+type KoreTreeItemType = 'datapack' | 'category' | 'group' | 'file' | 'element' | 'separator';
+
+/** `path/from/workspace.kt:line`, the form terminals and most editors open directly. */
+function declarationPathOf(element: ResolvedKoreElement): string {
+	return `${vscode.workspace.asRelativePath(element.uri, false)}:${element.range.start.line + 1}`;
+}
+
+/** Same tooltip for the tree item and the gutter hover: values render as code so they read as copy-ready. */
+export function elementTooltip(element: ResolvedKoreElement): vscode.MarkdownString {
+	const kind = kindById(element.kindId);
+	const lines = [`**${kind ? displayNameFor(kind) : element.kindId}** \`${element.name}\``];
+	if (element.kindId !== 'DATA_PACK') {
+		lines.push(`Namespace: \`${element.resolvedNamespace}\``, `Data Pack: \`${element.resolvedDataPackName}\``);
+	}
+	lines.push(`File: \`${declarationPathOf(element)}\``);
+	if (element.resourceLocation) {
+		lines.push(`Resource Location: \`${element.resourceLocation}\``);
+	}
+	lines.push(`Output Path: \`${element.outputPath}\``);
+	if (element.command) {
+		lines.push(`Command: \`${element.command}\``);
+	}
+	if (element.isDynamic) {
+		lines.push('_At least one part is computed at runtime, shown as its source snippet._');
+	}
+	return new vscode.MarkdownString(lines.join('  \n'));
+}
 
 export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeItem> {
 	private readonly _onDidChangeTreeData = new vscode.EventEmitter<KoreTreeItem | undefined | null | void>();
@@ -43,16 +84,16 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			} else {
 				return Promise.resolve(this.getDataPackRootItems());
 			}
-		} else if (element.contextValue === 'datapack') {
+		} else if (element.type === 'datapack') {
 			// Datapack level - show kind categories for elements belonging to this datapack
 			return Promise.resolve(this.getKindItemsForDataPack(element.dataPackName!));
-		} else if (element.contextValue === 'category') {
+		} else if (element.type === 'category') {
 			// Category level - show elements of this kind, scoped to the owning datapack
 			return Promise.resolve(this.getItemsByKind(element.kindId, element.dataPackName));
-		} else if (element.contextValue === 'group') {
+		} else if (element.type === 'group') {
 			// Group level - show items within this path segment
 			return Promise.resolve(this.getItemsInGroup(element));
-		} else if (element.contextValue === 'file') {
+		} else if (element.type === 'file') {
 			// File level - show items within this file
 			return Promise.resolve(this.getItemsInFile(element));
 		}
@@ -73,7 +114,7 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 
 			items.push(new KoreTreeItem({
 				label: dataPackName,
-				contextValue: 'datapack',
+				type: 'datapack',
 				kindId: 'DATA_PACK',
 				collapsibleState: vscode.TreeItemCollapsibleState.Expanded,
 				dataPackName,
@@ -108,7 +149,7 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 
 			items.push(new KoreTreeItem({
 				label: displayNameFor(kind),
-				contextValue: 'category',
+				type: 'category',
 				kindId,
 				collapsibleState: vscode.TreeItemCollapsibleState.Expanded,
 				dataPackName,
@@ -128,7 +169,7 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			const fileName = path.basename(filePath);
 			items.push(new KoreTreeItem({
 				label: fileName,
-				contextValue: 'file',
+				type: 'file',
 				kindId: '',
 				collapsibleState: vscode.TreeItemCollapsibleState.Expanded,
 				fileData: { filePath, elements: fileElements },
@@ -178,7 +219,7 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			const pathElements = groupElements.map(e => e.name);
 			items.push(new KoreTreeItem({
 				label: groupName,
-				contextValue: 'group',
+				type: 'group',
 				kindId,
 				collapsibleState: vscode.TreeItemCollapsibleState.Expanded,
 				groupData: { kindId, pathPrefix: groupName, pathElements, dataPackName },
@@ -220,7 +261,7 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			const newPathPrefix = `${pathPrefix}/${groupName}`;
 			items.push(new KoreTreeItem({
 				label: groupName,
-				contextValue: 'group',
+				type: 'group',
 				kindId,
 				collapsibleState: vscode.TreeItemCollapsibleState.Expanded,
 				groupData: { kindId, pathPrefix: newPathPrefix, pathElements: groupElements.map(e => e.name), dataPackName },
@@ -250,7 +291,7 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 				if (currentFileName && fileName !== currentFileName) {
 					result.push(new KoreTreeItem({
 						label: '—'.repeat(10),
-						contextValue: 'separator',
+						type: 'separator',
 						kindId: '',
 						collapsibleState: vscode.TreeItemCollapsibleState.None,
 					}));
@@ -278,8 +319,8 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 	// Groups first, then (when sorting by file) the file path, then kind, then name.
 	private sortItems(items: KoreTreeItem[]): KoreTreeItem[] {
 		return items.sort((a, b) => {
-			if (a.contextValue === 'group' && b.contextValue !== 'group') {return -1;}
-			if (a.contextValue !== 'group' && b.contextValue === 'group') {return 1;}
+			if (a.type === 'group' && b.type !== 'group') {return -1;}
+			if (a.type !== 'group' && b.type === 'group') {return 1;}
 
 			if (this._sortByFile && a.element && b.element) {
 				const fileCompare = a.element.uri.fsPath.localeCompare(b.element.uri.fsPath);
@@ -300,39 +341,9 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 			? element.name.substring(element.name.lastIndexOf('/') + 1)
 			: element.name;
 
-		// Extract just the filename from the full URI path
-		const filePath = element.uri.fsPath;
-		const fileName = path.basename(filePath);
-
-		// Get the line number
-		const lineNumber = element.range.start.line;
-
-		const kind = kindById(element.kindId);
-		const relativeFilePath = this.tryGetWorkspaceRelativePath(filePath);
-
-		const tooltipLines = [
-			`${kind ? displayNameFor(kind) : element.kindId}: ${element.name}`,
-		];
-		if (kind?.id !== 'DATA_PACK') {
-			tooltipLines.push(`Namespace: ${element.resolvedNamespace}`, `Data Pack: ${element.resolvedDataPackName}`);
-		}
-		tooltipLines.push(`File: ${relativeFilePath || fileName}`, `Line: ${lineNumber + 1}`);
-		if (element.resourceLocation) {
-			tooltipLines.push(`Resource Location: ${element.resourceLocation}`);
-		}
-		tooltipLines.push(`Output Path: ${element.outputPath}`);
-		if (element.command) {
-			tooltipLines.push(`Command: ${element.command}`);
-		}
-		if (element.isDynamic) {
-			tooltipLines.push('Note: at least one part is computed at runtime, shown as its source snippet.');
-		}
-
-		const tooltip = tooltipLines.join('\n');
-
 		return new KoreTreeItem({
 			label: displayName,
-			contextValue: 'element',
+			type: 'element',
 			kindId: element.kindId,
 			collapsibleState: vscode.TreeItemCollapsibleState.None,
 			command: {
@@ -340,35 +351,15 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 				title: 'Reveal Element',
 				arguments: [element]
 			},
-			fileName,
-			customTooltip: tooltip,
-			lineNumber,
 			extensionUri: this.extensionUri,
 			element,
 		});
-	}
-
-	// Helper function to get workspace relative path if possible
-	private tryGetWorkspaceRelativePath(absolutePath: string): string | undefined {
-		const workspaceFolders = vscode.workspace.workspaceFolders;
-		if (!workspaceFolders) {
-			return undefined;
-		}
-
-		for (const folder of workspaceFolders) {
-			const folderPath = folder.uri.fsPath;
-			if (absolutePath.startsWith(folderPath)) {
-				return absolutePath.substring(folderPath.length + 1); // +1 for the slash
-			}
-		}
-
-		return undefined;
 	}
 }
 
 interface KoreTreeItemOptions {
 	label: string;
-	contextValue: string;
+	type: KoreTreeItemType;
 	kindId: string;
 	collapsibleState: vscode.TreeItemCollapsibleState;
 	command?: vscode.Command;
@@ -378,99 +369,137 @@ interface KoreTreeItemOptions {
 		pathElements: string[];
 		dataPackName?: string;
 	};
-	fileName?: string;
 	fileData?: {
 		filePath: string;
 		elements: ResolvedKoreElement[];
 	};
-	customTooltip?: string;
-	lineNumber?: number;
 	extensionUri?: vscode.Uri;
 	element?: ResolvedKoreElement;
 	dataPackName?: string;
 }
 
+// What each node can copy. A datapack root only knows its output folder when it resolved to a real name, and its
+// source only when its `dataPack("x") { }` declaration was found; categories and groups copy the folder they map to.
+function copyableValues(options: KoreTreeItemOptions): CopyableValues {
+	const { type, element, dataPackName, groupData, fileData } = options;
+	const kind = kindById(options.kindId);
+	const namespace = dataPackName !== UNKNOWN_DATA_PACK ? dataPackName : undefined;
+
+	switch (type) {
+		case 'element':
+			return {
+				name: element!.name,
+				namespace: element!.kindId === 'DATA_PACK' ? undefined : element!.resolvedNamespace,
+				resourceLocation: element!.resourceLocation,
+				outputPath: element!.outputPath,
+				command: element!.command,
+				filePath: element!.uri.fsPath,
+				declarationPath: declarationPathOf(element!),
+			};
+		case 'datapack':
+			return {
+				name: namespace,
+				namespace,
+				outputPath: namespace && outputPathFor({ kind: DATA_PACK_KIND, name: namespace, namespace }),
+				filePath: element?.uri.fsPath,
+				declarationPath: element && declarationPathOf(element),
+			};
+		case 'category':
+			return {
+				name: options.label,
+				namespace,
+				outputPath: namespace && kind && `data/${namespace}/${kind.resourceFolder}`,
+			};
+		case 'group':
+			return {
+				name: groupData!.pathPrefix,
+				namespace,
+				outputPath: namespace && kind && `data/${namespace}/${kind.resourceFolder}/${groupData!.pathPrefix}`,
+			};
+		case 'file':
+			return {
+				name: options.label,
+				filePath: fileData!.filePath,
+				declarationPath: vscode.workspace.asRelativePath(fileData!.filePath, false),
+			};
+		case 'separator':
+			return {};
+	}
+}
+
 export class KoreTreeItem extends vscode.TreeItem {
+	public readonly type: KoreTreeItemType;
+	/** `<type> <field>...`: the `view/item/context` when-clauses regex-match the fields to show only the copyable ones. */
 	public readonly contextValue: string;
 	public readonly kindId: string;
 	public readonly groupData?: KoreTreeItemOptions['groupData'];
 	public readonly fileData?: KoreTreeItemOptions['fileData'];
 	public readonly element?: ResolvedKoreElement;
 	public readonly dataPackName?: string;
+	public readonly values: CopyableValues;
 
 	constructor(options: KoreTreeItemOptions) {
 		super(options.label, options.collapsibleState);
 
-		this.contextValue = options.contextValue;
+		this.type = options.type;
 		this.kindId = options.kindId;
 		this.command = options.command;
 		this.groupData = options.groupData;
 		this.fileData = options.fileData;
 		this.element = options.element;
 		this.dataPackName = options.dataPackName;
+		this.values = Object.fromEntries(Object.entries(copyableValues(options)).filter(([, value]) => value));
+		this.contextValue = [options.type, ...Object.keys(this.values)].join(' ');
 
-		const { fileName, lineNumber, customTooltip, extensionUri } = options;
-
-		// Set file name as description (appears in gray after the label)
-		if (fileName && options.contextValue !== 'separator') {
-			// If we have a line number, add it in parentheses
-			this.description = lineNumber !== undefined ? `${fileName} (${lineNumber + 1})` : fileName;
-		}
-
+		const { extensionUri, element } = options;
 		const kind = kindById(options.kindId);
 
-		// Set icon based on kind and context
-		if (options.contextValue === 'category') {
-			this.iconPath = new vscode.ThemeIcon(categoryThemeIcon(kind));
-			this.tooltip = kind ? `${displayNameFor(kind)} declarations in the workspace` : options.label;
-		} else if (options.contextValue === 'element') {
-			// Element icons - use custom icons from extension assets
-			if (extensionUri && kind) {
-				const iconName = elementIconName(kind);
-				this.iconPath = {
-					light: vscode.Uri.joinPath(extensionUri, 'dist', 'assets', `${iconName}-light.svg`),
-					dark: vscode.Uri.joinPath(extensionUri, 'dist', 'assets', `${iconName}-dark.svg`)
-				};
-			}
-			this.tooltip = customTooltip || options.label;
-			this.contextValue = 'element';
-		} else if (options.contextValue === 'datapack') {
-			// Datapack root icons - reuse the same custom datapack icon as DATA_PACK elements
-			if (extensionUri) {
-				this.iconPath = {
-					light: vscode.Uri.joinPath(extensionUri, 'dist', 'assets', 'datapack-light.svg'),
-					dark: vscode.Uri.joinPath(extensionUri, 'dist', 'assets', 'datapack-dark.svg')
-				};
-			}
-			this.tooltip = customTooltip ?? `Datapack: ${options.label}`;
-		} else if (options.contextValue === 'group') {
-			// Group icons
-			this.iconPath = new vscode.ThemeIcon('folder');
-			if (options.groupData && kind) {
-				this.tooltip = `${displayNameFor(kind)} group: ${options.groupData.pathPrefix}`;
-			}
-		} else if (options.contextValue === 'file') {
-			// File icons
-			this.iconPath = new vscode.ThemeIcon('file-code');
-			if (options.fileData) {
-				const elementCount = options.fileData.elements.length;
-				const datapackCount = options.fileData.elements.filter(e => e.kindId === 'DATA_PACK').length;
-				const functionCount = options.fileData.elements.filter(e => {
-					const k = kindById(e.kindId);
-					return k ? isFunctionKind(k) : false;
-				}).length;
-				const otherCount = elementCount - datapackCount - functionCount;
-				this.tooltip = `File: ${options.label}\nDatapacks: ${datapackCount}\nFunctions: ${functionCount}\nOther: ${otherCount}\nTotal elements: ${elementCount}`;
-			}
-		} else if (options.contextValue === 'separator') {
-			// Style for separator - gray line
-			this.description = '';
+		const assetIcon = (name: string) => ({
+			light: vscode.Uri.joinPath(extensionUri!, 'dist', 'assets', `${name}-light.svg`),
+			dark: vscode.Uri.joinPath(extensionUri!, 'dist', 'assets', `${name}-dark.svg`),
+		});
 
-			// Empty tooltip
-			this.tooltip = '';
-
-			// Set a themed icon to show it's a separator
-			this.iconPath = new vscode.ThemeIcon('dash');
+		switch (options.type) {
+			case 'category':
+				this.iconPath = new vscode.ThemeIcon(categoryThemeIcon(kind));
+				this.tooltip = kind ? `${displayNameFor(kind)} declarations in the workspace` : options.label;
+				break;
+			case 'element':
+				if (extensionUri && kind) {
+					this.iconPath = assetIcon(elementIconName(kind));
+				}
+				this.description = `${path.basename(element!.uri.fsPath)} (${element!.range.start.line + 1})`;
+				this.tooltip = elementTooltip(element!);
+				break;
+			case 'datapack':
+				if (extensionUri) {
+					this.iconPath = assetIcon('datapack');
+				}
+				this.tooltip = element ? elementTooltip(element) : `Datapack: ${options.label}`;
+				break;
+			case 'group':
+				this.iconPath = new vscode.ThemeIcon('folder');
+				if (options.groupData && kind) {
+					this.tooltip = `${displayNameFor(kind)} group: ${options.groupData.pathPrefix}`;
+				}
+				break;
+			case 'file':
+				this.iconPath = new vscode.ThemeIcon('file-code');
+				if (options.fileData) {
+					const elementCount = options.fileData.elements.length;
+					const datapackCount = options.fileData.elements.filter(e => e.kindId === 'DATA_PACK').length;
+					const functionCount = options.fileData.elements.filter(e => {
+						const k = kindById(e.kindId);
+						return k ? isFunctionKind(k) : false;
+					}).length;
+					const otherCount = elementCount - datapackCount - functionCount;
+					this.tooltip = `File: ${options.label}\nDatapacks: ${datapackCount}\nFunctions: ${functionCount}\nOther: ${otherCount}\nTotal elements: ${elementCount}`;
+				}
+				break;
+			case 'separator':
+				this.tooltip = '';
+				this.iconPath = new vscode.ThemeIcon('dash');
+				break;
 		}
 	}
 }

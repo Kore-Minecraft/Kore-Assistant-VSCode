@@ -6,6 +6,8 @@ import { KoreTreeDataProvider, KoreTreeItem } from '../koreTreeView';
 const extensionUri = vscode.Uri.file('/ext');
 const fileA = vscode.Uri.file('/ws/A.kt');
 const fileB = vscode.Uri.file('/ws/B.kt');
+// No workspace is open in the test host, so the "relative" path is the input echoed back in platform form.
+const pathA = vscode.workspace.asRelativePath(fileA, false);
 
 function element(uri: vscode.Uri, kindId: string, name: string, line = 0, extra: Partial<KoreElement> = {}): KoreElement {
 	return { kindId, name, isDynamic: false, range: new vscode.Range(line, 0, line, 1), uri, ...extra };
@@ -50,7 +52,7 @@ suite('KoreTreeDataProvider', () => {
 
 			const roots = await provider.getChildren();
 			assert.deepStrictEqual(labels(roots), ['alpha', 'zeta', UNKNOWN_DATA_PACK]);
-			assert.ok(roots.every(r => r.contextValue === 'datapack'));
+			assert.ok(roots.every(r => r.type === 'datapack'));
 			assert.strictEqual(roots[0].element?.name, 'alpha');
 			assert.strictEqual(roots[2].element, undefined);
 		});
@@ -67,7 +69,7 @@ suite('KoreTreeDataProvider', () => {
 			const [root] = await provider.getChildren();
 			const categories = await provider.getChildren(root);
 			assert.deepStrictEqual(labels(categories), ['Advancement', 'Function', 'Loot Table']);
-			assert.ok(categories.every(c => c.contextValue === 'category' && c.dataPackName === 'p'));
+			assert.ok(categories.every(c => c.type === 'category' && c.dataPackName === 'p'));
 		});
 
 		test('a category only lists elements of its own datapack', async () => {
@@ -94,7 +96,7 @@ suite('KoreTreeDataProvider', () => {
 			const [category] = await provider.getChildren(root);
 			const items = await provider.getChildren(category);
 			assert.deepStrictEqual(labels(items), ['dir', 'zdir', 'top']);
-			assert.deepStrictEqual(items.map(i => i.contextValue), ['group', 'group', 'element']);
+			assert.deepStrictEqual(items.map(i => i.type), ['group', 'group', 'element']);
 
 			const dir = await provider.getChildren(items[0]);
 			assert.deepStrictEqual(labels(dir), ['deep', 'leaf']);
@@ -127,8 +129,8 @@ suite('KoreTreeDataProvider', () => {
 			const [root] = await provider.getChildren();
 			const [category] = await provider.getChildren(root);
 			const items = await provider.getChildren(category);
-			assert.deepStrictEqual(items.map(i => i.contextValue), ['element', 'element', 'separator', 'element']);
-			assert.deepStrictEqual(labels(items.filter(i => i.contextValue === 'element')), ['a', 'z', 'b_first']);
+			assert.deepStrictEqual(items.map(i => i.type), ['element', 'element', 'separator', 'element']);
+			assert.deepStrictEqual(labels(items.filter(i => i.type === 'element')), ['a', 'z', 'b_first']);
 			assert.strictEqual(items[0].description, 'A.kt (6)');
 		});
 
@@ -143,7 +145,7 @@ suite('KoreTreeDataProvider', () => {
 			const [category] = await provider.getChildren(root);
 			const items = await provider.getChildren(category);
 			assert.deepStrictEqual(labels(items), ['a', 'b_first', 'z']);
-			assert.ok(items.every(i => i.contextValue === 'element'));
+			assert.ok(items.every(i => i.type === 'element'));
 		});
 	});
 
@@ -158,7 +160,7 @@ suite('KoreTreeDataProvider', () => {
 
 			const roots = await provider.getChildren();
 			assert.deepStrictEqual(labels(roots), ['A.kt', 'B.kt']);
-			assert.ok(roots.every(r => r.contextValue === 'file'));
+			assert.ok(roots.every(r => r.type === 'file'));
 			assert.strictEqual(roots[0].tooltip, 'File: A.kt\nDatapacks: 1\nFunctions: 1\nOther: 1\nTotal elements: 3');
 		});
 
@@ -173,7 +175,7 @@ suite('KoreTreeDataProvider', () => {
 			const [file] = await provider.getChildren();
 			const items = await provider.getChildren(file);
 			assert.deepStrictEqual(labels(items), ['p', 'a', 'z', 'l']);
-			assert.ok(items.every(i => i.contextValue === 'element'));
+			assert.ok(items.every(i => i.type === 'element'));
 		});
 	});
 
@@ -190,16 +192,15 @@ suite('KoreTreeDataProvider', () => {
 			assert.strictEqual(item.description, 'A.kt (5)');
 			assert.strictEqual(item.command?.command, 'kore-assistant.revealKoreElement');
 			assert.strictEqual(item.command?.arguments?.[0], item.element);
-			assert.strictEqual(item.tooltip, [
-				'Function: dir/main',
-				'Namespace: p',
-				'Data Pack: p',
-				'File: A.kt',
-				'Line: 5',
-				'Resource Location: p:sub/dir/main',
-				'Output Path: data/p/function/sub/dir/main.mcfunction',
-				'Command: /function p:sub/dir/main',
-			].join('\n'));
+			assert.strictEqual((item.tooltip as vscode.MarkdownString).value, [
+				'**Function** `dir/main`',
+				'Namespace: `p`',
+				'Data Pack: `p`',
+				`File: \`${pathA}:5\``,
+				'Resource Location: `p:sub/dir/main`',
+				'Output Path: `data/p/function/sub/dir/main.mcfunction`',
+				'Command: `/function p:sub/dir/main`',
+			].join('  \n'));
 		});
 
 		test('a dynamic element gets the runtime note, a datapack element no namespace lines', async () => {
@@ -208,13 +209,72 @@ suite('KoreTreeDataProvider', () => {
 
 			const [file] = await provider.getChildren();
 			const [item] = await provider.getChildren(file);
-			assert.strictEqual(item.tooltip, [
-				'Data Pack: p',
-				'File: A.kt',
-				'Line: 1',
-				'Output Path: p/pack.mcmeta',
-				'Note: at least one part is computed at runtime, shown as its source snippet.',
-			].join('\n'));
+			assert.strictEqual((item.tooltip as vscode.MarkdownString).value, [
+				'**Data Pack** `p`',
+				`File: \`${pathA}:1\``,
+				'Output Path: `p/pack.mcmeta`',
+				'_At least one part is computed at runtime, shown as its source snippet._',
+			].join('  \n'));
+		});
+
+		test('expose every copyable value and flag them in the contextValue for the menu when-clauses', async () => {
+			seed([fileA, [element(fileA, 'FUNCTION', 'main', 2, { dataPackName: 'p' }), element(fileA, 'BIOME', 'b', 3, { dataPackName: 'p' })]]);
+			provider.setGroupByFile(true);
+
+			const [file] = await provider.getChildren();
+			const [fn, biome] = await provider.getChildren(file);
+
+			assert.deepStrictEqual(fn.values, {
+				name: 'main',
+				namespace: 'p',
+				resourceLocation: 'p:main',
+				outputPath: 'data/p/function/main.mcfunction',
+				command: '/function p:main',
+				filePath: fileA.fsPath,
+				declarationPath: `${pathA}:3`,
+			});
+			assert.strictEqual(fn.contextValue, 'element name namespace resourceLocation outputPath command filePath declarationPath');
+			assert.strictEqual(biome.values.command, undefined);
+			assert.strictEqual(biome.contextValue, 'element name namespace resourceLocation outputPath filePath declarationPath');
+		});
+	});
+
+	suite('container items', () => {
+		test('a declared datapack root copies its own source and pack.mcmeta, an unknown one copies nothing', async () => {
+			// Two datapacks, so the sole-datapack fallback doesn't adopt the orphan.
+			seed([fileA, [element(fileA, 'DATA_PACK', 'p', 1), element(fileA, 'DATA_PACK', 'q', 2)]], [fileB, [element(fileB, 'FUNCTION', 'orphan')]]);
+
+			const [declared, , unknown] = await provider.getChildren();
+			assert.deepStrictEqual(declared.values, {
+				name: 'p',
+				namespace: 'p',
+				outputPath: 'p/pack.mcmeta',
+				filePath: fileA.fsPath,
+				declarationPath: `${pathA}:2`,
+			});
+			assert.strictEqual(declared.contextValue, 'datapack name namespace outputPath filePath declarationPath');
+			assert.strictEqual((declared.tooltip as vscode.MarkdownString).value.split('  \n')[0], '**Data Pack** `p`');
+			assert.deepStrictEqual(unknown.values, {});
+			assert.strictEqual(unknown.contextValue, 'datapack');
+		});
+
+		test('categories and groups copy the output folder they map to', async () => {
+			seed([fileA, [element(fileA, 'FUNCTION', 'dir/main', 0, { dataPackName: 'p' })]]);
+
+			const [root] = await provider.getChildren();
+			const [category] = await provider.getChildren(root);
+			const [group] = await provider.getChildren(category);
+			assert.deepStrictEqual(category.values, { name: 'Function', namespace: 'p', outputPath: 'data/p/function' });
+			assert.deepStrictEqual(group.values, { name: 'dir', namespace: 'p', outputPath: 'data/p/function/dir' });
+		});
+
+		test('a file root copies its absolute and workspace-relative path', async () => {
+			seed([fileA, [element(fileA, 'FUNCTION', 'f')]]);
+			provider.setGroupByFile(true);
+
+			const [file] = await provider.getChildren();
+			assert.deepStrictEqual(file.values, { name: 'A.kt', filePath: fileA.fsPath, declarationPath: pathA });
+			assert.strictEqual(file.contextValue, 'file name filePath declarationPath');
 		});
 
 		test('icons come from the extension assets per kind family', async () => {

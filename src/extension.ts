@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { displayNameFor, isFunctionKind, kindById } from './koreDeclarations';
+import { isFunctionKind, kindById } from './koreDeclarations';
 import { koreElementManager, KoreElement, ResolvedKoreElement } from './koreElements';
 import { parseKoreDeclarations } from './koreParser';
-import { KoreTreeDataProvider, KoreTreeItem } from './koreTreeView';
+import { CopyableField, elementTooltip, KoreTreeDataProvider, KoreTreeItem } from './koreTreeView';
 
 // Delay before rescanning a document after an edit, to avoid a full rescan on every keystroke
 const RESCAN_DEBOUNCE_MS = 300;
@@ -10,6 +10,8 @@ const RESCAN_DEBOUNCE_MS = 300;
 const KOTLIN_FILES_GLOB = '**/*.kt';
 // Gradle/IDE output folders can hold generated Kotlin that would show up as duplicates in the tree.
 const KOTLIN_FILES_EXCLUDE = '**/{build,.gradle,.idea,node_modules}/**';
+
+const COPYABLE_FIELDS: CopyableField[] = ['name', 'namespace', 'resourceLocation', 'outputPath', 'command', 'filePath', 'declarationPath'];
 
 // Decoration types for gutter icons: function-family kinds keep the function icon, DATA_PACK keeps the Kore
 // logo mark, and every other (JSON-backed) kind gets a generic json icon.
@@ -79,29 +81,23 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 		editor.selection = new vscode.Selection(element.range.start, element.range.start);
 	}
 
-	// Right-click "Copy..." opens a QuickPick so each field's real value is visible (grayed, right-aligned)
-	// before copying - a plain context-menu entry can't show that, its title is a static string from package.json.
-	async function copyValue(item: KoreTreeItem) {
-		const element = item.element;
-		if (!element) {
-			return;
-		}
+	// One `kore-assistant.copy<Field>` command per copyable field: a context-menu entry can only pass the tree item,
+	// so the field has to be baked into the command id. package.json gates each entry on the item's contextValue.
+	const copyCommands = COPYABLE_FIELDS.map(field =>
+		vscode.commands.registerCommand(`kore-assistant.copy${field[0].toUpperCase()}${field.slice(1)}`, async (item: KoreTreeItem) => {
+			const value = item.values[field];
+			if (value) {
+				await vscode.env.clipboard.writeText(value);
+			}
+		})
+	);
 
-		const fields: vscode.QuickPickItem[] = [];
-		if (element.kindId !== 'DATA_PACK') {
-			fields.push({ label: 'Namespace', description: element.resolvedNamespace });
-		}
-		if (element.resourceLocation) {
-			fields.push({ label: 'Resource Location', description: element.resourceLocation });
-		}
-		fields.push({ label: 'Output Path', description: element.outputPath });
-		if (element.command) {
-			fields.push({ label: 'Command', description: element.command });
-		}
-
-		const picked = await vscode.window.showQuickPick(fields, { placeHolder: 'Select a value to copy' });
-		if (picked) {
-			await vscode.env.clipboard.writeText(picked.description!);
+	// Datapack roots and file nodes have no click action (clicking toggles them), so the menu offers the jump instead.
+	async function openDeclaration(item: KoreTreeItem) {
+		if (item.element) {
+			await revealElement(item.element);
+		} else if (item.fileData) {
+			await vscode.window.showTextDocument(vscode.Uri.file(item.fileData.filePath));
 		}
 	}
 
@@ -127,7 +123,8 @@ export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 		vscode.commands.registerCommand('kore-assistant.toggleSorting', toggleSortingMode),
 		vscode.commands.registerCommand('kore-assistant.toggleSortingByName', toggleSortingMode),
 		vscode.commands.registerCommand('kore-assistant.revealKoreElement', revealElement),
-		vscode.commands.registerCommand('kore-assistant.copyValue', copyValue),
+		vscode.commands.registerCommand('kore-assistant.openDeclaration', openDeclaration),
+		...copyCommands,
 
 		vscode.window.onDidChangeActiveTextEditor(editor => {
 			if (editor) {
@@ -250,28 +247,6 @@ function decorationTypeFor(element: ResolvedKoreElement): vscode.TextEditorDecor
 	return isFunctionKind(kind) ? functionDecoration : jsonDecoration;
 }
 
-// Markdown (not a plain string) so paths render as code and the kind name is bold, matching the tree tooltip.
-function hoverMessageFor(element: ResolvedKoreElement): vscode.MarkdownString {
-	const kind = kindById(element.kindId)!;
-	const title = kind.id === 'DATA_PACK' ? 'Datapack' : displayNameFor(kind);
-
-	const md = new vscode.MarkdownString();
-	md.appendMarkdown(`**${title}**: ${element.name}\n\n`);
-
-	if (kind.id !== 'DATA_PACK') {
-		md.appendMarkdown(`Namespace: \`${element.resolvedNamespace}\`  \nData Pack: ${element.resolvedDataPackName}\n\n`);
-	}
-	if (element.resourceLocation) {
-		md.appendMarkdown(`Resource Location: \`${element.resourceLocation}\`\n\n`);
-	}
-	md.appendMarkdown(`Output Path: \`${element.outputPath}\``);
-	if (element.command) {
-		md.appendMarkdown(`\n\nCommand: \`${element.command}\``);
-	}
-
-	return md;
-}
-
 function updateDecorations(editor: vscode.TextEditor) {
 	const document = editor.document;
 	if (document.languageId !== 'kotlin') {
@@ -289,7 +264,7 @@ function updateDecorations(editor: vscode.TextEditor) {
 	for (const element of koreElementManager.getElementsForUri(document.uri)) {
 		const decorationType = decorationTypeFor(element);
 		if (decorationType) {
-			optionsByDecoration.get(decorationType)!.push({ range: element.range, hoverMessage: hoverMessageFor(element) });
+			optionsByDecoration.get(decorationType)!.push({ range: element.range, hoverMessage: elementTooltip(element) });
 		}
 	}
 
