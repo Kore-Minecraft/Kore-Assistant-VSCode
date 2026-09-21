@@ -17,7 +17,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `craftingShaped` checks: at most 3 rows of at most 3 characters, every row as wide as the first, no empty row, every pattern character mapped by a `key` / `keys` entry, single-character non-space keys, and unused keys greyed out
 - `kore-assistant.diagnostics.enabled` setting to turn the checks off
 - Kore project detection from `build.gradle(.kts)`, `pom.xml` and `libs.versions.toml` (Kore version, Gradle plugin applied), logged in the output channel
-- Explorer groupings: "Output Structure" (datapack > namespace > resource folder, the generated layout, where the 20 recipe kinds collapse into one `recipe` folder) and "Flat List", next to the existing kind and source file views
+- Explorer groupings: "Output Structure" (datapack > namespace > resource folder > path folders, the generated layout, where the 20 recipe kinds collapse into one `recipe` folder) and "Flat List", next to the existing kind and source file views
+- A function's `directory` argument (`function("on_death", directory = "hearts")`) is a folder in the explorer, and the full `hearts/on_death` path shows in the file and flat views
+- The gutter hover ends with a "Reveal in Kore Explorer" link, and the gutter/line-number right-click menu offers the same for the clicked line
+- The `function` command is recognized under an import alias (`import io.github.ayfri.kore.commands.function as callFunction`)
 - Explorer sorting by name, kind, namespace or declaration order; picking the active criterion again flips the direction
 - Explorer filter matching the name, namespace or output path of every declaration, with the match count shown above the tree and on the view badge
 - Element counts on datapack, namespace, folder, category, path group and file rows, a `~` marker on declarations whose name is built at runtime, and a hover on every container row listing its output folder, elements, namespaces, kinds, folders or files
