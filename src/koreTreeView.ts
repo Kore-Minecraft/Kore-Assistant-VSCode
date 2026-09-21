@@ -244,8 +244,8 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 		let currentFileName: string | undefined;
 
 		for (const item of sortedItems) {
-			if (item.contextValue === 'element' && item.description) {
-				const fileName = item.description.toString();
+			if (item.element) {
+				const fileName = item.element.uri.fsPath;
 
 				if (currentFileName && fileName !== currentFileName) {
 					result.push(new KoreTreeItem({
@@ -275,14 +275,14 @@ export class KoreTreeDataProvider implements vscode.TreeDataProvider<KoreTreeIte
 		return kind ? displayNameFor(kind) : kindId;
 	}
 
-	// Groups first, then (when sorting by file) the file description, then kind, then name.
+	// Groups first, then (when sorting by file) the file path, then kind, then name.
 	private sortItems(items: KoreTreeItem[]): KoreTreeItem[] {
 		return items.sort((a, b) => {
 			if (a.contextValue === 'group' && b.contextValue !== 'group') {return -1;}
 			if (a.contextValue !== 'group' && b.contextValue === 'group') {return 1;}
 
-			if (this._sortByFile && a.description && b.description) {
-				const fileCompare = a.description.toString().localeCompare(b.description.toString());
+			if (this._sortByFile && a.element && b.element) {
+				const fileCompare = a.element.uri.fsPath.localeCompare(b.element.uri.fsPath);
 				if (fileCompare !== 0) {return fileCompare;}
 			}
 
