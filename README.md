@@ -9,6 +9,7 @@ A Visual Studio Code extension providing powerful tools for working with [Kore](
 - **Kore declaration discovery**: Detects datapacks, functions, tags, predicates, recipes, advancements, dialogs, world-generation resources (features, carvers, density functions, structures), and the other Kore DSL builders in Kotlin files, including builders nested in a scope such as `recipes { }` or `structures { }`
 - **Workspace-aware resolution**: A `dataPack(NAMESPACE)`, `function("leaf_$id")` or `lootTable(Names.PREFIX + "chest")` resolves through the `val` constants of the workspace (chains like `val NS = "${BASE}_pack"` included), and a `fun DataPack.setup()` / `fun setup(dp: DataPack)` / `context(dp: DataPack) fun setup()` helper is filed under the datapack whose `dataPack { }` block calls it (directly or through other helpers). Helpers nobody calls fall back to the datapack declared in the closest folder, so a multi-project workspace like the Kore `Examples` repo keeps each project's helpers under its own pack
 - **Gutter icons and hovers**: Marks declarations in the editor and shows their resource location, generated output path, source location, and relevant Minecraft command
+- **Diagnostics**: Warns when two declarations write the same file (the last one generated silently wins), reports a `function("helper")` command whose target is not declared in the project with quick fixes (rename to a close match, call it under the namespace that declares it, swap inverted `namespace, name` arguments, or create the missing function), and checks `craftingShaped` recipes for grid size, row width, missing and unused keys. Turn them off with `kore-assistant.diagnostics.enabled`
 - **Kore Explorer**: Browses declarations by datapack and resource kind, or groups them by source file
 - **Navigation and copy actions**: Reveals the declaration source, and every explorer node has a context menu to copy its name, namespace, resource location, output path or folder, command, file path or `file:line` declaration path
 - **Sorting and grouping**: Switch between file and type views, then sort declarations by source file or name
@@ -73,6 +74,7 @@ The extension provides the following snippets for Kotlin files:
 
 ## Extension Settings
 
+- `kore-assistant.diagnostics.enabled` (default `true`): report duplicate declarations, unresolved `function` commands and invalid `craftingShaped` patterns in the Problems view
 - Group elements by file or type
 - Sort elements by name or file location
 

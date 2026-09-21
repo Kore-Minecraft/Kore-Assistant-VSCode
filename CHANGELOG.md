@@ -12,6 +12,11 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Names, namespaces, directories and datapack names given as a `val` constant (`dataPack(NAMESPACE)`, `Constants.NAMESPACE`), a string template (`"blocks/$leafId"`) or a concatenation (`"blocks/" + LEAF + "_log"`) resolve through the workspace's `val` bindings, following `val A = B` and template chains up to 8 hops, the closest in-scope local first, then the file-level one, then a workspace-wide unique one
 - Declarations inside a datapack helper (`fun DataPack.xxx()`, `fun xxx(dp: DataPack)` or `context(dp: DataPack) fun xxx()`) belong to the datapack whose `dataPack { }` block calls the helper, following calls through other helpers and across files; a same-file function of the same name shadows the lookup like in Kotlin
 - Helpers no datapack calls fall back to the datapack declared in the closest folder, which keeps each project of a multi-project workspace (the Kore `Examples` repo) under its own pack
+- Duplicate declaration warning: two declarations of one datapack writing the same output file are flagged on both sides, with links to each other, since the last one generated silently overwrites the others
+- Unresolved function command error: a `function("helper")` command inside a function body whose target is declared nowhere in the project, with quick fixes to rename it to a close match, call it under the namespace that declares it, swap inverted `namespace, name` arguments, or create the missing function after the caller
+- `craftingShaped` checks: at most 3 rows of at most 3 characters, every row as wide as the first, no empty row, every pattern character mapped by a `key` / `keys` entry, single-character non-space keys, and unused keys greyed out
+- `kore-assistant.diagnostics.enabled` setting to turn the checks off
+- Kore project detection from `build.gradle(.kts)`, `pom.xml` and `libs.versions.toml` (Kore version, Gradle plugin applied), logged in the output channel
 
 ### Changed
 - Explorer tooltips are Markdown, with every value rendered as code, and match the editor hover
