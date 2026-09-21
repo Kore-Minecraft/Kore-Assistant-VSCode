@@ -24,7 +24,12 @@ let treeDataProvider: KoreTreeDataProvider;
 let groupByFile = false;
 let sortByFile = true;
 
-export function activate(context: vscode.ExtensionContext) {
+/** What `vscode.extensions.getExtension(...).exports` hands out, so tests can read the bundled element store. */
+export interface KoreAssistantApi {
+	koreElementManager: typeof koreElementManager;
+}
+
+export function activate(context: vscode.ExtensionContext): KoreAssistantApi {
 	outputChannel = vscode.window.createOutputChannel("Kore Assistant");
 	outputChannel.appendLine("Kore Assistant is now active");
 
@@ -151,6 +156,8 @@ export function activate(context: vscode.ExtensionContext) {
 	if (vscode.window.activeTextEditor) {
 		updateDecorations(vscode.window.activeTextEditor);
 	}
+
+	return { koreElementManager };
 }
 
 function isKotlinFile(uri: vscode.Uri): boolean {
