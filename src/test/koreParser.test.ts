@@ -363,9 +363,103 @@ suite('koreParser', () => {
 		assert.deepStrictEqual(parseKoreDeclarations(`val function = 1\nobj.function { }`), []);
 	});
 
+	test('a function declaration named like a builder is not a call, its body still is scanned', () => {
+		assert.deepStrictEqual(parseKoreDeclarations(`fun DataPack.tick(name: String) { }`), []);
+		assert.deepStrictEqual(parseKoreDeclarations(`fun <reified T : Foo> function(name: String) { }`), []);
+		const decls = parseKoreDeclarations(`fun function(name: String) = advancement("a") { }\nfun DataPack.helper() { function("f") { } }`);
+		assert.deepStrictEqual(decls.map(d => `${d.kindId}:${d.name}`), ['ADVANCEMENT:a', 'FUNCTION:f']);
+	});
+
 	test('ignores a lambda argument passed inline before the name', () => {
 		const decls = parseKoreDeclarations(`function({ x }, "main") { }`);
 		assert.strictEqual(decls.length, 1);
 		assert.strictEqual(decls[0].name, 'main');
+	});
+
+	suite('scoped builders', () => {
+		test('finds scoped builders inside their scope block, with or without a trailing lambda', () => {
+			const decls = parseKoreDeclarations(`
+				dataPack("p") {
+					recipes {
+						craftingShaped("sword") { pattern("x") }
+						smelting("ingot", Items.RAW_IRON, Items.IRON_INGOT)
+					}
+					enchantmentProviders {
+						single("pillager_spawn_crossbow", Enchantments.PIERCING, uniform(1, 3))
+						byCost("mob_spawn_equipment", Tags.Enchantment.ON_MOB_SPAWN_EQUIPMENT, cost = uniform(5, 25))
+					}
+				}
+			`);
+			const byName = new Map(decls.map(d => [d.name, d]));
+			assert.deepStrictEqual([...byName.keys()].sort(), ['ingot', 'mob_spawn_equipment', 'p', 'pillager_spawn_crossbow', 'sword']);
+			assert.strictEqual(byName.get('sword')!.kindId, 'CRAFTING_SHAPED');
+			assert.strictEqual(byName.get('ingot')!.kindId, 'SMELTING');
+			assert.strictEqual(byName.get('pillager_spawn_crossbow')!.kindId, 'SINGLE_ENCHANTMENT_PROVIDER');
+			assert.strictEqual(byName.get('mob_spawn_equipment')!.kindId, 'BY_COST_ENCHANTMENT_PROVIDER');
+			assert.ok(decls.every(d => d.dataPackName === 'p'));
+		});
+
+		test('the scope block may be called with parentheses too', () => {
+			const decls = parseKoreDeclarations(`structures() { shipwreck("wreck") { biomes(Biomes.OCEAN) } }`);
+			assert.strictEqual(decls.length, 1);
+			assert.strictEqual(decls[0].kindId, 'SHIPWRECK');
+		});
+
+		test('the xxxBuilder receiver property stands in for the scope block', () => {
+			const decls = parseKoreDeclarations(`
+				dp.configuredFeaturesBuilder.ore("ruby_ore", size = 8)
+				dialogBuilder.notice("hello") { title("Hi") }
+				dp?.densityFunctionsBuilder?.abs("flat", 2.0)
+			`);
+			assert.deepStrictEqual(decls.map(d => d.kindId), ['ORE_FEATURE', 'NOTICE', 'ABS_DENSITY_FUNCTION']);
+			assert.deepStrictEqual(decls.map(d => d.name), ['ruby_ore', 'hello', 'flat']);
+		});
+
+		test('a scoped builder outside its scope is not a declaration, even with a lambda', () => {
+			assert.deepStrictEqual(parseKoreDeclarations(`single("x") { }`), []);
+			assert.deepStrictEqual(parseKoreDeclarations(`sequence("x") { }`), []);
+			assert.deepStrictEqual(parseKoreDeclarations(`list.single("x")`), []);
+			assert.deepStrictEqual(parseKoreDeclarations(`recipes { } smelting("x")`), []);
+		});
+
+		test('a scope decides between same-named top-level and scoped builders', () => {
+			assert.strictEqual(parseKoreDeclarations(`noise("n") { }`)[0].kindId, 'NOISE');
+			assert.strictEqual(parseKoreDeclarations(`densityFunctions { noise("n", Noises.CAVE_LAYER) }`)[0].kindId, 'NOISE_DENSITY_FUNCTION');
+			assert.strictEqual(parseKoreDeclarations(`testEnvironments { function("env") { setup(f) } }`)[0].kindId, 'FUNCTION_TEST_ENVIRONMENT');
+			assert.strictEqual(parseKoreDeclarations(`function("f") { }`)[0].kindId, 'FUNCTION');
+		});
+
+		test('unscoped builders still need their trailing lambda inside a scope', () => {
+			assert.deepStrictEqual(parseKoreDeclarations(`recipes { advancement("a") }`), []);
+		});
+
+		test('reports the builder identifier offset for block-less scoped calls', () => {
+			const src = `recipes { smelting("x") }`;
+			assert.strictEqual(parseKoreDeclarations(src)[0].offset, src.indexOf('smelting'));
+		});
+	});
+
+	suite('tags and 26.2 builders', () => {
+		test('typed tag builders are declarations', () => {
+			const decls = parseKoreDeclarations(`
+				dataPack("p") {
+					blockTag("ores") { this += Blocks.IRON_ORE }
+					functionTag("ticks", namespace = "minecraft") { this += f }
+				}
+			`);
+			const byName = new Map(decls.map(d => [d.name, d]));
+			assert.strictEqual(byName.get('ores')!.kindId, 'BLOCK_TAG');
+			assert.strictEqual(byName.get('ticks')!.kindId, 'FUNCTION_TAG');
+			assert.strictEqual(byName.get('ticks')!.namespace, 'minecraft');
+		});
+
+		test('sulfurCubeArchetype and structure are declarations', () => {
+			const decls = parseKoreDeclarations(`
+				sulfurCubeArchetype("regular", Tags.Item.SWORDS, horizontalKnockbackPower = 0.4f, verticalKnockbackPower = 0.2f) { buoyant = true }
+				structure("custom", type) { namespace = "ns" }
+			`);
+			assert.deepStrictEqual(decls.map(d => d.kindId), ['SULFUR_CUBE_ARCHETYPE', 'STRUCTURE']);
+			assert.strictEqual(decls[1].namespace, 'ns');
+		});
 	});
 });

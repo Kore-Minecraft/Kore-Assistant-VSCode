@@ -4,7 +4,7 @@
 // builder in koreDeclarations.ts. Mirrors KoreCallUtils.kt / KoreDeclarationData.kt from the IntelliJ plugin,
 // minus the semantic `analyze { }` confirmation - see docs/feature-parity-plan.md for what that drops.
 
-import { isFunctionKind, kindByBuilderName, type KoreDeclarationKind } from './koreDeclarations';
+import { isFunctionKind, kindByBuilderName, KORE_SCOPES, type KoreDeclarationKind, type KoreScope } from './koreDeclarations';
 
 const MAX_PLACEHOLDER_LENGTH = 80;
 
@@ -18,6 +18,7 @@ const NAMESPACE_PARAMETER_INDEX = 1;
 const DIRECTORY_PARAMETER_INDEX = 2;
 
 const DATA_PACK_BUILDER_NAME = 'dataPack';
+const FUN_KEYWORD = 'fun';
 
 const NAMESPACE_STATEMENT_PATTERN = /^namespace\s*=(?!=)\s*([\s\S]+)$/;
 const NAMED_ARG_PATTERN = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*=(?!=)\s*([\s\S]*)$/;
@@ -43,9 +44,14 @@ interface ParsedArgs {
 	named: Map<string, string>;
 }
 
+const SCOPES_BY_BUILDER_NAME = new Map(KORE_SCOPES.map(scope => [scope.builderName, scope]));
+const SCOPES_BY_RECEIVER_NAME = new Map(KORE_SCOPES.map(scope => [scope.receiverName, scope]));
+
 type ParenFrame = {
 	kind: 'paren';
 	calleeName?: string;
+	/** The identifier before `.callee(`, e.g. `recipesBuilder` in `dp.recipesBuilder.smelting("x")`. */
+	receiverName?: string;
 	argStart: number;
 	identStart: number;
 };
@@ -68,6 +74,7 @@ export function parseKoreDeclarations(text: string): RawKoreDeclaration[] {
 	const stack: GroupFrame[] = [];
 	const len = text.length;
 	let i = 0;
+	let declaringFunction = false;
 
 	while (i < len) {
 		const c = text[i];
@@ -106,9 +113,21 @@ export function parseKoreDeclarations(text: string): RawKoreDeclaration[] {
 			const ident = text.slice(identStart, j);
 			i = j;
 
+			if (ident === FUN_KEYWORD) {
+				declaringFunction = true;
+				continue;
+			}
+
 			const k = skipWhitespaceAndComments(text, i);
 			if (text[k] === '(') {
-				stack.push({ kind: 'paren', calleeName: ident, argStart: k + 1, identStart });
+				// `fun DataPack.tick(name: String) {` declares a builder, it does not call one: keep the callee anonymous.
+				const calleeName = declaringFunction ? undefined : ident;
+				declaringFunction = false;
+				stack.push({ kind: 'paren', calleeName, receiverName: receiverBefore(text, identStart), argStart: k + 1, identStart });
+				i = k + 1;
+			} else if (text[k] === '{') {
+				// `recipes { }` - a lambda-only call, kept on the stack so scoped builders inside can see their scope.
+				stack.push({ kind: 'brace', calleeName: ident, bodyStart: k + 1, callOffset: identStart });
 				i = k + 1;
 			}
 			continue;
@@ -125,10 +144,20 @@ export function parseKoreDeclarations(text: string): RawKoreDeclaration[] {
 			const argsText = frame?.kind === 'paren' ? text.slice(frame.argStart, i) : undefined;
 			i++;
 
-			if (frame?.kind === 'paren') {
+			if (frame?.kind === 'paren' && frame.calleeName) {
 				const k = skipWhitespaceAndComments(text, i);
-				if (text[k] === '{' && frame.calleeName) {
-					const declarationKind = kindByBuilderName(frame.calleeName);
+				const declarationKind = kindByBuilderName(frame.calleeName, activeScopes(stack, frame.receiverName));
+				const hasBlock = text[k] === '{';
+
+				if (!hasBlock && declarationKind?.scope) {
+					// Scoped builders default their lambda (`single("x", Enchantments.PIERCING)`), the scope is proof enough.
+					const decl = buildDeclaration(frame.identStart, declarationKind, parseArgs(argsText ?? ''), '', stack);
+					if (decl) {
+						results.push(decl);
+					}
+				}
+
+				if (hasBlock) {
 					const args = parseArgs(argsText ?? '');
 					const braceFrame: BraceFrame = {
 						kind: 'brace',
@@ -163,7 +192,7 @@ export function parseKoreDeclarations(text: string): RawKoreDeclaration[] {
 			i++;
 
 			if (frame?.kind === 'brace' && frame.declarationKind && frame.args && bodyText !== undefined) {
-				const decl = buildDeclaration(frame, frame.declarationKind, frame.args, bodyText, stack);
+				const decl = buildDeclaration(frame.callOffset, frame.declarationKind, frame.args, bodyText, stack);
 				if (decl) {
 					results.push(decl);
 				}
@@ -181,8 +210,40 @@ function declarationNameArgument(args: ParsedArgs): string | undefined {
 	return args.named.get(NAME_PARAMETER_NAME) ?? args.named.get(FILE_NAME_PARAMETER_NAME) ?? args.positional[0];
 }
 
+/** The scopes a call at the top of `stack` sits in: every enclosing `recipes { }` block plus a `recipesBuilder.` receiver. */
+function activeScopes(stack: GroupFrame[], receiverName: string | undefined): Set<KoreScope> {
+	const scopes = new Set<KoreScope>();
+	for (const frame of stack) {
+		const scope = frame.kind === 'brace' && frame.calleeName ? SCOPES_BY_BUILDER_NAME.get(frame.calleeName) : undefined;
+		if (scope) {
+			scopes.add(scope);
+		}
+	}
+	const receiverScope = receiverName ? SCOPES_BY_RECEIVER_NAME.get(receiverName) : undefined;
+	if (receiverScope) {
+		scopes.add(receiverScope);
+	}
+	return scopes;
+}
+
+/** The identifier ending right before `.` at `identStart - 1`, so `a.b(` yields `a`. Safe-call `?.` counts too. */
+function receiverBefore(text: string, identStart: number): string | undefined {
+	let end = identStart - 1;
+	if (text[end] !== '.') {
+		return undefined;
+	}
+	if (text[end - 1] === '?') {
+		end--;
+	}
+	let start = end;
+	while (start > 0 && isIdentifierPart(text[start - 1])) {
+		start--;
+	}
+	return start < end ? text.slice(start, end) : undefined;
+}
+
 function buildDeclaration(
-	frame: BraceFrame,
+	callOffset: number,
 	kind: KoreDeclarationKind,
 	args: ParsedArgs,
 	bodyText: string,
@@ -215,7 +276,7 @@ function buildDeclaration(
 		directory: directoryValue?.text,
 		dataPackName: dataPackValue?.text,
 		isDynamic,
-		offset: frame.callOffset,
+		offset: callOffset,
 	};
 }
 
