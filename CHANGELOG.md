@@ -4,6 +4,16 @@ All notable changes to the "Kore Assistant" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [Unreleased]
+
+### Added
+- Context menu on every Explorer node: copy the name, namespace, resource location, output path, command, file path or `file:line` declaration path of a declaration, the `pack.mcmeta` path and source of a datapack, the output folder of a category or path group, and the path of a file
+- "Go to Declaration" on datapack roots and file nodes, which have no click action
+
+### Changed
+- Explorer tooltips are Markdown, with every value rendered as code, and match the editor hover
+- Copy entries are direct menu items instead of the "Copy..." picker
+
 ## [0.3.0] - 2026-09-21
 
 ### Added
