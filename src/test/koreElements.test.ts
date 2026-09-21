@@ -1,12 +1,13 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { KoreElement, KoreElementManager, UNKNOWN_DATA_PACK } from '../koreElements';
+import { KoreElement, KoreElementManager, KoreFile, koreFileFrom, UNKNOWN_DATA_PACK } from '../koreElements';
+import { parseKotlinFile } from '../koreParser';
 
 const fileA = vscode.Uri.file('/ws/A.kt');
 const fileB = vscode.Uri.file('/ws/B.kt');
 
 function element(uri: vscode.Uri, kindId: string, name: string, extra: Partial<KoreElement> = {}): KoreElement {
-	return { kindId, name, isDynamic: false, range: new vscode.Range(0, 0, 0, 1), uri, ...extra };
+	return { kindId, name, isDynamic: false, dynamicFields: [], range: new vscode.Range(0, 0, 0, 1), uri, ...extra };
 }
 
 suite('KoreElementManager', () => {
@@ -141,5 +142,97 @@ suite('KoreElementManager', () => {
 		assert.deepStrictEqual(manager.getElementsForUri(fileA).map(e => e.name), ['a', 'l']);
 		assert.deepStrictEqual(manager.getElementsByKindId('FUNCTION').map(e => e.name), ['a', 'b']);
 		assert.deepStrictEqual(manager.getElementsByKindId('NOPE'), []);
+	});
+
+	suite('workspace resolution', () => {
+		const constantsKt = vscode.Uri.file('/ws/Constants.kt');
+		const otherProject = vscode.Uri.file('/other/Main.kt');
+
+		function file(uri: vscode.Uri, text: string): KoreFile {
+			const parsed = parseKotlinFile(text);
+			return koreFileFrom(parsed, parsed.declarations.map(({ offset, ...fields }) => ({
+				...fields, range: new vscode.Range(0, offset, 0, offset + 1), uri,
+			})));
+		}
+
+		teardown(() => manager.removeElementsForUris([constantsKt, otherProject]));
+
+		test('resolves a constant datapack name and string-template parts from a `val` in another file', () => {
+			manager.replaceElementsForUris([
+				[constantsKt, file(constantsKt, 'const val NAMESPACE = "lifesteal"\nval LEAF = "oak"')],
+				[fileA, file(fileA, 'dataPack(NAMESPACE) { lootTable("blocks/${LEAF}_$LEAF") { } }')],
+			]);
+
+			const [loot, pack] = manager.getElementsForUri(fileA);
+			assert.strictEqual(pack.name, 'lifesteal');
+			assert.strictEqual(pack.isDynamic, false);
+			assert.strictEqual(loot.name, 'blocks/oak_oak');
+			assert.strictEqual(loot.resolvedDataPackName, 'lifesteal');
+			assert.strictEqual(loot.outputPath, 'data/lifesteal/loot_table/blocks/oak_oak.json');
+			assert.strictEqual(loot.isDynamic, false);
+		});
+
+		test('keeps the snippet, marked dynamic, when a constant is unknown or bound differently across files', () => {
+			manager.replaceElementsForUris([
+				[fileA, file(fileA, 'val X = "a"\nfunction(X) { }\nfunction(Y) { }')],
+				[fileB, file(fileB, 'val X = "b"\nfunction(X) { }')],
+				[constantsKt, file(constantsKt, 'function(X) { }')],
+			]);
+
+			const names = (uri: vscode.Uri) => manager.getElementsForUri(uri).map(e => [e.name, e.isDynamic]);
+			assert.deepStrictEqual(names(fileA), [['a', false], ['Y', true]]);
+			assert.deepStrictEqual(names(fileB), [['b', false]]);
+			assert.deepStrictEqual(names(constantsKt), [['X', true]]);
+		});
+
+		test('follows extension-function calls from a dataPack block, transitively and across files', () => {
+			manager.replaceElementsForUris([
+				[fileA, file(fileA, 'fun main() { dataPack("p") { setup() } }')],
+				[fileB, file(fileB, 'fun DataPack.setup() { helper() }\nprivate fun DataPack.helper() { function("h") { } }')],
+			]);
+
+			const [h] = manager.getElementsForUri(fileB);
+			assert.strictEqual(h.resolvedDataPackName, 'p');
+			assert.strictEqual(h.command, '/function p:h');
+		});
+
+		test('a same-file function of the same name shadows the DataPack extension elsewhere', () => {
+			manager.replaceElementsForUris([
+				[fileA, file(fileA, 'fun Function.tests() { }\nclass T { init { dataPack("unit") { load { tests() } } } }')],
+				[fileB, file(fileB, 'fun DataPack.tests() { function("f") { } }\nclass U { init { dataPack("features") { tests() } } }')],
+			]);
+
+			assert.strictEqual(manager.getElementsForUri(fileB).find(e => e.name === 'f')!.resolvedDataPackName, 'features');
+		});
+
+		test('an extension called from several datapacks falls back to the folder rule', () => {
+			manager.replaceElementsForUris([
+				[fileA, file(fileA, 'dataPack("p") { shared() }\ndataPack("q") { shared() }')],
+				[otherProject, file(otherProject, 'fun DataPack.shared() { function("s") { } }\ndataPack("other") { }')],
+			]);
+
+			assert.strictEqual(manager.getElementsForUri(otherProject).find(e => e.name === 's')!.resolvedDataPackName, 'other');
+		});
+
+		test('picks the nearest folder declaring exactly one datapack, and gives up on a mixed folder', () => {
+			manager.replaceElementsForUris([
+				[fileA, file(fileA, 'dataPack("p") { }')],
+				[fileB, file(fileB, 'function("orphan") { }')],
+				[otherProject, file(otherProject, 'dataPack("other") { }\nfunction("mine") { }')],
+			]);
+			assert.strictEqual(manager.getElementsForUri(fileB)[0].resolvedDataPackName, 'p');
+			assert.strictEqual(manager.getElementsForUri(otherProject).find(e => e.name === 'mine')!.resolvedDataPackName, 'other');
+
+			manager.replaceElementsForUri(constantsKt, file(constantsKt, 'dataPack("second") { }'));
+			assert.strictEqual(manager.getElementsForUri(fileB)[0].resolvedDataPackName, UNKNOWN_DATA_PACK);
+		});
+
+		test('a file with only constants or extension functions stays indexed even without declarations', () => {
+			manager.replaceElementsForUris([
+				[constantsKt, file(constantsKt, 'val N = "pack"')],
+				[fileA, file(fileA, 'dataPack(N) { }')],
+			]);
+			assert.strictEqual(manager.getElements()[0].name, 'pack');
+		});
 	});
 });

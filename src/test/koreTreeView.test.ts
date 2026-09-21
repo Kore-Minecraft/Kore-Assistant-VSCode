@@ -10,7 +10,7 @@ const fileB = vscode.Uri.file('/ws/B.kt');
 const pathA = vscode.workspace.asRelativePath(fileA, false);
 
 function element(uri: vscode.Uri, kindId: string, name: string, line = 0, extra: Partial<KoreElement> = {}): KoreElement {
-	return { kindId, name, isDynamic: false, range: new vscode.Range(line, 0, line, 1), uri, ...extra };
+	return { kindId, name, isDynamic: false, dynamicFields: [], range: new vscode.Range(line, 0, line, 1), uri, ...extra };
 }
 
 function labels(items: KoreTreeItem[]): string[] {
@@ -204,7 +204,7 @@ suite('KoreTreeDataProvider', () => {
 		});
 
 		test('a dynamic element gets the runtime note, a datapack element no namespace lines', async () => {
-			seed([fileA, [element(fileA, 'DATA_PACK', 'p', 0, { isDynamic: true })]]);
+			seed([fileA, [element(fileA, 'DATA_PACK', 'p', 0, { isDynamic: true, dynamicFields: ['name'] })]]);
 			provider.setGroupByFile(true);
 
 			const [file] = await provider.getChildren();

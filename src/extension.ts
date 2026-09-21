@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { isFunctionKind, kindById } from './koreDeclarations';
-import { koreElementManager, KoreElement, ResolvedKoreElement } from './koreElements';
-import { parseKoreDeclarations } from './koreParser';
+import { koreElementManager, KoreElement, KoreFile, koreFileFrom, koreFileOf, ResolvedKoreElement } from './koreElements';
+import { parseKotlinFile } from './koreParser';
 import { CopyableField, elementTooltip, KoreTreeDataProvider, KoreTreeItem } from './koreTreeView';
 
 // Delay before rescanning a document after an edit, to avoid a full rescan on every keystroke
@@ -176,13 +176,13 @@ async function scanFiles(uris: readonly vscode.Uri[]) {
 	}
 
 	const decoder = new TextDecoder();
-	const entries = await Promise.all(uris.map(async (uri): Promise<[vscode.Uri, KoreElement[]]> => {
+	const entries = await Promise.all(uris.map(async (uri): Promise<[vscode.Uri, KoreFile]> => {
 		try {
 			const bytes = await vscode.workspace.fs.readFile(uri);
-			return [uri, parseKoreElements(decoder.decode(bytes), uri)];
+			return [uri, parseKoreFile(decoder.decode(bytes), uri)];
 		} catch (error) {
 			outputChannel.appendLine(`Error processing file ${uri.fsPath}: ${error}`);
-			return [uri, []];
+			return [uri, koreFileOf([])];
 		}
 	}));
 
@@ -212,26 +212,25 @@ function positionResolver(text: string): (offset: number) => vscode.Position {
 }
 
 // Scans a file's text for Kore DSL declarations, without touching the shared element store
-function parseKoreElements(text: string, uri: vscode.Uri): KoreElement[] {
+function parseKoreFile(text: string, uri: vscode.Uri): KoreFile {
 	const positionAt = positionResolver(text);
+	const parsed = parseKotlinFile(text);
 
-	return parseKoreDeclarations(text).flatMap(decl => {
+	const elements = parsed.declarations.flatMap((decl): KoreElement[] => {
 		const kind = kindById(decl.kindId);
 		if (!kind) {
 			return [];
 		}
 
+		const { offset, ...fields } = decl;
 		return [{
-			kindId: decl.kindId,
-			name: decl.name,
-			namespace: decl.namespace,
-			dataPackName: decl.dataPackName,
-			directory: decl.directory,
-			isDynamic: decl.isDynamic,
-			range: new vscode.Range(positionAt(decl.offset), positionAt(decl.offset + kind.builderName.length)),
+			...fields,
+			range: new vscode.Range(positionAt(offset), positionAt(offset + kind.builderName.length)),
 			uri,
 		}];
 	});
+
+	return koreFileFrom(parsed, elements);
 }
 
 function decorationTypeFor(element: ResolvedKoreElement): vscode.TextEditorDecorationType | undefined {
@@ -253,7 +252,7 @@ function updateDecorations(editor: vscode.TextEditor) {
 		return;
 	}
 
-	koreElementManager.replaceElementsForUri(document.uri, parseKoreElements(document.getText(), document.uri));
+	koreElementManager.replaceElementsForUri(document.uri, parseKoreFile(document.getText(), document.uri));
 
 	const optionsByDecoration = new Map<vscode.TextEditorDecorationType, vscode.DecorationOptions[]>([
 		[datapackDecoration, []],
