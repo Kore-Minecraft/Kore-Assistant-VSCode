@@ -7,6 +7,7 @@ A Visual Studio Code extension providing powerful tools for working with [Kore](
 ## Features
 
 - **Kore declaration discovery**: Detects datapacks, functions, tags, predicates, recipes, advancements, dialogs, world-generation resources (features, carvers, density functions, structures), and the other Kore DSL builders in Kotlin files, including builders nested in a scope such as `recipes { }` or `structures { }`
+- **Workspace-aware resolution**: A `dataPack(NAMESPACE)` or `function("leaf_$id")` resolves through the `val` constants of the workspace, and a `fun DataPack.setup()` helper is filed under the datapack whose `dataPack { }` block calls it (directly or through other helpers). Helpers nobody calls fall back to the datapack declared in the closest folder, so a multi-project workspace like the Kore `Examples` repo keeps each project's helpers under its own pack
 - **Gutter icons and hovers**: Marks declarations in the editor and shows their resource location, generated output path, source location, and relevant Minecraft command
 - **Kore Explorer**: Browses declarations by datapack and resource kind, or groups them by source file
 - **Navigation and copy actions**: Reveals the declaration source, and every explorer node has a context menu to copy its name, namespace, resource location, output path or folder, command, file path or `file:line` declaration path

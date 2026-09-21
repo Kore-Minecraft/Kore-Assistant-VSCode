@@ -9,6 +9,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ### Added
 - Context menu on every Explorer node: copy the name, namespace, resource location, output path, command, file path or `file:line` declaration path of a declaration, the `pack.mcmeta` path and source of a datapack, the output folder of a category or path group, and the path of a file
 - "Go to Declaration" on datapack roots and file nodes, which have no click action
+- Names, namespaces, directories and datapack names given as a `val` constant (`dataPack(NAMESPACE)`) or a string template of constants (`"blocks/$leafId"`) resolve through the workspace's `val X = "..."` bindings, in the same file first
+- Declarations inside a `fun DataPack.xxx()` helper belong to the datapack whose `dataPack { }` block calls the helper, following calls through other helpers and across files; a same-file function of the same name shadows the lookup like in Kotlin
+- Helpers no datapack calls fall back to the datapack declared in the closest folder, which keeps each project of a multi-project workspace (the Kore `Examples` repo) under its own pack
 
 ### Changed
 - Explorer tooltips are Markdown, with every value rendered as code, and match the editor hover
