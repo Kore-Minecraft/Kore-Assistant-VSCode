@@ -43,26 +43,64 @@ function resolveElement(element: KoreElement, soleDataPack: string | undefined):
 }
 
 export class KoreElementManager {
-	private elements: KoreElement[] = [];
+	private readonly elementsByFile = new Map<string, KoreElement[]>();
+	/** Resolved view of every file, rebuilt lazily after a change: the tree view asks for it once per node. */
+	private resolved: ResolvedKoreElement[] | undefined;
 	private readonly _onDidChangeElements = new vscode.EventEmitter<void>();
 	readonly onDidChangeElements: vscode.Event<void> = this._onDidChangeElements.event;
 
-	// Swaps out every element for a given file in one shot, firing a single change event instead of one per element.
+	/** Swaps out every element of a file in one shot, firing a single change event instead of one per element. */
 	public replaceElementsForUri(uri: vscode.Uri, elements: KoreElement[]): void {
-		this.elements = this.elements.filter(e => e.uri.fsPath !== uri.fsPath).concat(elements);
+		this.setFile(uri, elements);
+		this.invalidate();
+	}
+
+	/** Same as [replaceElementsForUri] for many files at once, with one change event for the whole batch. */
+	public replaceElementsForUris(entries: Iterable<readonly [vscode.Uri, KoreElement[]]>): void {
+		for (const [uri, elements] of entries) {
+			this.setFile(uri, elements);
+		}
+		this.invalidate();
+	}
+
+	public removeElementsForUris(uris: Iterable<vscode.Uri>): void {
+		for (const uri of uris) {
+			this.elementsByFile.delete(uri.fsPath);
+		}
+		this.invalidate();
+	}
+
+	private setFile(uri: vscode.Uri, elements: KoreElement[]): void {
+		if (elements.length === 0) {
+			this.elementsByFile.delete(uri.fsPath);
+		} else {
+			this.elementsByFile.set(uri.fsPath, elements);
+		}
+	}
+
+	private invalidate(): void {
+		this.resolved = undefined;
 		this._onDidChangeElements.fire();
 	}
 
 	// If there's exactly one DATA_PACK declaration across the whole workspace, its name backs any element that
 	// couldn't resolve a dataPackName locally (same "soleDataPack" fallback the IntelliJ plugin uses).
-	private soleDataPackName(): string | undefined {
-		const names = new Set(this.elements.filter(e => e.kindId === 'DATA_PACK').map(e => e.name));
+	private soleDataPackName(elements: KoreElement[]): string | undefined {
+		const names = new Set(elements.filter(e => e.kindId === 'DATA_PACK').map(e => e.name));
 		return names.size === 1 ? [...names][0] : undefined;
 	}
 
 	public getElements(): ResolvedKoreElement[] {
-		const soleDataPack = this.soleDataPackName();
-		return this.elements.map(e => resolveElement(e, soleDataPack));
+		if (!this.resolved) {
+			const elements = [...this.elementsByFile.values()].flat();
+			const soleDataPack = this.soleDataPackName(elements);
+			this.resolved = elements.map(e => resolveElement(e, soleDataPack));
+		}
+		return this.resolved;
+	}
+
+	public getElementsForUri(uri: vscode.Uri): ResolvedKoreElement[] {
+		return this.getElements().filter(e => e.uri.fsPath === uri.fsPath);
 	}
 
 	public getElementsByKindId(kindId: string): ResolvedKoreElement[] {

@@ -4,6 +4,13 @@ All notable changes to the "Kore Assistant" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [Unreleased]
+
+### Changed
+- Faster workspace scan: Kotlin files are read from disk in parallel and the Explorer refreshes once, not once per file
+- Generated Kotlin under `build/`, `.gradle/`, `.idea/` and `node_modules/` is no longer scanned
+- Deleting or renaming a Kotlin file now removes its elements from the Explorer
+
 ## [0.2.0] - 2026-07-27
 
 ### Added
